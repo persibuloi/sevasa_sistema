@@ -1,0 +1,26 @@
+# Portabilidad futura (VPS/local). Hoy el desarrollo va contra Supabase directo.
+#   docker compose -f docker/docker-compose.yml up -d
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: sevasa_contable
+      POSTGRES_USER: sevasa
+      POSTGRES_PASSWORD: sevasa_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ../backend
+    environment:
+      DATABASE_URL: postgresql://sevasa:sevasa_local@postgres:5432/sevasa_contable
+      PUERTO: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
