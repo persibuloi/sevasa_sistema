@@ -63,6 +63,53 @@ export interface LineaMayor {
   saldo: number;
 }
 
+export interface Serie {
+  serie: string;
+  tienda: string;
+  tipo: 'sistema' | 'manual';
+  prefijo: string;
+  ultimo_numero: number;
+  activa: boolean;
+}
+
+export interface Cliente {
+  id: number;
+  ruc: string | null;
+  nombre: string;
+  tipo: string;
+  terminos_dias: number;
+  activo: boolean;
+  facturas_emitidas?: number;
+}
+
+export interface LineaFactura {
+  id?: number;
+  descripcion: string;
+  cantidad: string | number;
+  precio_unitario: string | number;
+  total?: string | number;
+}
+
+export interface Factura {
+  id: number;
+  serie: string;
+  numero: number | null;
+  numero_completo: string | null;
+  fecha: string;
+  tercero_id: number;
+  cliente?: string;
+  tienda?: string;
+  tipo_pago: 'contado' | 'credito';
+  estado: 'borrador' | 'emitida' | 'anulada';
+  origen: string;
+  subtotal: string | number;
+  iva: string | number;
+  total: string | number;
+  notas: string | null;
+  asiento_id: number | null;
+  lineas?: LineaFactura[];
+}
+
 export interface RespuestaMayor {
   cuenta: { codigo: string; nombre: string };
   desde: string | null;

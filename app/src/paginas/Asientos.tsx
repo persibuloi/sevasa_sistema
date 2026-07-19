@@ -91,7 +91,7 @@ export default function Asientos() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-slate-800">Asientos</h2>
+        <div />
         <button
           onClick={() => setMostrandoForm(!mostrandoForm)}
           className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700"

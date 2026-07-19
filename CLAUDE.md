@@ -77,6 +77,17 @@ cd app && npm run build
   Navegación por pestañas en App.tsx; cliente API en `app/src/api.ts`.
 - F1 pendiente: importador de catálogo y asiento de apertura desde `datos-prueba/`
   + verificación de cuadre contra la balanza del sistema viejo.
+- F2a ✅ (facturación núcleo): migración 004 (config, series, talonarios, facturas,
+  líneas + triggers de inmutabilidad), backend clientes/series/facturas/config
+  (borrador → emitir con row-lock + asiento automático → anular con contra-asiento),
+  pantallas Facturas (editor con resumen y emisión) y Clientes.
+- Diseño: sistema "libro mayor moderno" en `app/src/index.css` — tokens @theme
+  (tinta/fondo/verde/borde), Schibsted Grotesk + IBM Plex Mono (.cifra), clases
+  .entrada/.etiqueta/.boton-*/.tarjeta/.insignia-*/.tabla. Shell con sidebar oscuro.
+  TODA pantalla nueva usa estas clases (no estilos ad-hoc).
+- F2 pendiente: recibos de cobro, notas de crédito, antigüedad de cartera,
+  facturas manuales (talonarios), impresión/formato DGI, restyle de pantallas F1
+  al sistema de diseño nuevo.
 - Datos de prueba del sistema viejo: se cargan en `datos-prueba/` (raíz del repo,
   EXCLUIDA de git — datos reales de la empresa no van al historial).
 - Saldos iniciales: carga simplificada por saldos globales por tercero (ver plan §F1).

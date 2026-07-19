@@ -8,6 +8,10 @@ import { rutasCuentas } from './rutas/cuentas';
 import { rutasPeriodos } from './rutas/periodos';
 import { rutasAsientos } from './rutas/asientos';
 import { rutasReportes } from './rutas/reportes';
+import { rutasClientes } from './rutas/clientes';
+import { rutasSeries } from './rutas/series';
+import { rutasFacturas } from './rutas/facturas';
+import { rutasConfig } from './rutas/config';
 
 const app = express();
 app.use(cors());
@@ -29,6 +33,10 @@ app.get('/api/yo', autenticar, (req, res) => {
 app.use('/api/cuentas', autenticar, rutasCuentas);
 app.use('/api/periodos', autenticar, rutasPeriodos);
 app.use('/api/asientos', autenticar, rutasAsientos);
+app.use('/api/clientes', autenticar, rutasClientes);
+app.use('/api/series', autenticar, rutasSeries);
+app.use('/api/facturas', autenticar, rutasFacturas);
+app.use('/api/config', autenticar, rutasConfig);
 app.use('/api', autenticar, rutasReportes); // /api/balanza, /api/mayor/:cuenta
 
 // Traducción de errores de BD a respuestas claras (los triggers hablan español)

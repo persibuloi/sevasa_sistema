@@ -1,8 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Paleta "libro mayor moderno" */
+  --color-tinta: #0e1622;        /* sidebar / titulares */
+  --color-tinta-claro: #1c2739;  /* hover en sidebar */
+  --color-tinta-borde: #2a3a52;
+  --color-fondo: #f4f3ef;        /* papel cálido */
+  --color-borde: #e3e1da;
+  --color-verde: #0e7a5a;        /* acento contable */
+  --color-verde-oscuro: #0a5f46;
+  --color-verde-suave: #e4f2ec;
+  --color-ambar: #b45309;
+  --color-ambar-suave: #fdf0e0;
+  --color-rojo: #b3261e;
+  --color-rojo-suave: #fbe9e7;
+}
+
+body {
+  background-color: var(--color-fondo);
+  color: #182231;
+  font-feature-settings: "ss01";
+}
 
 @layer components {
   .entrada {
-    @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white
-           focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100;
+    @apply w-full rounded-lg border border-borde bg-white px-3 py-2 text-sm text-tinta
+           shadow-[0_1px_2px_rgba(14,22,34,0.04)] transition-colors
+           placeholder:text-slate-400
+           focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20
+           disabled:bg-fondo disabled:text-slate-400;
   }
+  .etiqueta {
+    @apply block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 mb-1.5;
+  }
+  .boton-primario {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-verde px-4 py-2
+           text-sm font-semibold text-white shadow-[0_1px_2px_rgba(10,95,70,0.4)]
+           transition hover:bg-verde-oscuro active:translate-y-px
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .boton-suave {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-borde bg-white
+           px-4 py-2 text-sm font-semibold text-tinta transition
+           hover:border-slate-300 hover:bg-fondo active:translate-y-px;
+  }
+  .boton-peligro {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm
+           font-semibold text-rojo transition hover:bg-rojo-suave;
+  }
+  .tarjeta {
+    @apply rounded-2xl border border-borde bg-white shadow-[0_1px_3px_rgba(14,22,34,0.05)];
+  }
+  .insignia-verde, .insignia-ambar, .insignia-roja, .insignia-gris {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold;
+  }
+  .insignia-verde { @apply bg-verde-suave text-verde-oscuro; }
+  .insignia-ambar { @apply bg-ambar-suave text-ambar; }
+  .insignia-roja  { @apply bg-rojo-suave text-rojo; }
+  .insignia-gris  { @apply bg-slate-100 text-slate-500; }
+
+  .cifra {
+    @apply font-mono tabular-nums;
+  }
+
+  .tabla { @apply w-full text-sm; }
+  .tabla thead th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em]
+           text-slate-400 border-b border-borde bg-white;
+  }
+  .tabla tbody td { @apply px-4 py-2.5 border-t border-borde/60; }
+  .tabla tbody tr { @apply transition-colors; }
+  .tabla tbody tr:hover { @apply bg-fondo/60; }
 }

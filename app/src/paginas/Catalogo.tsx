@@ -77,7 +77,7 @@ export default function Catalogo() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-slate-800">Catálogo de cuentas</h2>
+        <div />
         <button
           onClick={abrirNueva}
           className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700"

@@ -38,8 +38,6 @@ export default function Mayor() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-slate-800 mb-4">Libro mayor</h2>
-
       <div className="bg-white rounded-xl shadow p-4 mb-4 flex flex-wrap items-end gap-3">
         <div className="min-w-64">
           <label className="block text-xs font-medium text-slate-500 mb-1">Cuenta</label>

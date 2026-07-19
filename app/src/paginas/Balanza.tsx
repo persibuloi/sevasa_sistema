@@ -31,7 +31,7 @@ export default function Balanza() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <h2 className="text-xl font-semibold text-slate-800">Balanza de comprobación</h2>
+        <div />
         <div className="flex items-center gap-4 text-sm">
           <label className="flex items-center gap-2 text-slate-600">
             <input

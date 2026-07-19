@@ -171,6 +171,14 @@ async function sembrar(): Promise<void> {
     }
     console.log(`✅ ${asientos.length} asientos de ejemplo (junio y julio)`);
 
+    // Series de facturación de prueba (F2)
+    await bd.query(`
+      INSERT INTO series (serie, tienda, tipo, prefijo) VALUES
+        ('A-CEN', 'Sucursal Central', 'sistema', 'A-CEN-'),
+        ('A-SUR', 'Sucursal Sur',     'sistema', 'A-SUR-')
+      ON CONFLICT DO NOTHING`);
+    console.log('✅ 2 series de facturación');
+
     // Junio queda cerrado para demostrar el candado de período
     await bd.query(`UPDATE periodos SET estado = 'cerrado', cerrado_en = now() WHERE ano_mes = '2026-06'`);
     console.log('🔒 Período 2026-06 cerrado (probá tocarlo: la BD lo rechaza)');

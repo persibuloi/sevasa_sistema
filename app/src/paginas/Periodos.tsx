@@ -43,8 +43,6 @@ export default function Periodos() {
 
   return (
     <div className="max-w-2xl">
-      <h2 className="text-xl font-semibold text-slate-800 mb-4">Períodos contables</h2>
-
       <form onSubmit={abrir} className="bg-white rounded-xl shadow p-4 mb-4 flex items-end gap-3">
         <div>
           <label className="block text-xs font-medium text-slate-500 mb-1">Nuevo período (YYYY-MM)</label>
