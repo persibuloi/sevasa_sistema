@@ -67,8 +67,13 @@ cd app && npm run build
 
 ## Estado actual
 
-- F0 en curso: falta crear proyecto Supabase (espera confirmación de costo del usuario),
-  conectar Supabase Auth al login y desplegar en Vercel.
+- F0 ✅: Supabase "sevasa" (dqlylcjwvcbxyxsoyhnw) con migraciones 001-003 aplicadas,
+  login conectado (Supabase Auth), runner local operativo. Pendiente: deploy Vercel.
+- F1 backend ✅: auth middleware (valida token contra /auth/v1/user, bootstrap del
+  primer usuario como admin), rutas de cuentas/periodos/asientos (crear manual +
+  anular por contra-asiento)/balanza/mayor. Permisos por acción vía tabla permisos.
+- F1 pendiente: pantallas (catálogo, balanza, mayor, asientos), importador de
+  catálogo y asiento de apertura desde `datos-prueba/`.
 - Datos de prueba del sistema viejo: se cargan en `datos-prueba/` (raíz del repo,
   EXCLUIDA de git — datos reales de la empresa no van al historial).
 - Saldos iniciales: carga simplificada por saldos globales por tercero (ver plan §F1).
