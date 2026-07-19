@@ -72,8 +72,11 @@ cd app && npm run build
 - F1 backend ✅: auth middleware (valida token contra /auth/v1/user, bootstrap del
   primer usuario como admin), rutas de cuentas/periodos/asientos (crear manual +
   anular por contra-asiento)/balanza/mayor. Permisos por acción vía tabla permisos.
-- F1 pendiente: pantallas (catálogo, balanza, mayor, asientos), importador de
-  catálogo y asiento de apertura desde `datos-prueba/`.
+- F1 pantallas ✅: balanza, asientos (captura manual multilinea + anular),
+  libro mayor, catálogo (crear/editar) y períodos (abrir/cerrar/reabrir).
+  Navegación por pestañas en App.tsx; cliente API en `app/src/api.ts`.
+- F1 pendiente: importador de catálogo y asiento de apertura desde `datos-prueba/`
+  + verificación de cuadre contra la balanza del sistema viejo.
 - Datos de prueba del sistema viejo: se cargan en `datos-prueba/` (raíz del repo,
   EXCLUIDA de git — datos reales de la empresa no van al historial).
 - Saldos iniciales: carga simplificada por saldos globales por tercero (ver plan §F1).

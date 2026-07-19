@@ -1,6 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import Catalogo from './paginas/Catalogo';
+import Asientos from './paginas/Asientos';
+import Balanza from './paginas/Balanza';
+import Mayor from './paginas/Mayor';
+import Periodos from './paginas/Periodos';
 
 export default function App() {
   const [sesion, setSesion] = useState<Session | null>(null);
@@ -23,7 +28,7 @@ export default function App() {
     );
   }
 
-  return sesion ? <Inicio sesion={sesion} /> : <Login />;
+  return sesion ? <Sistema sesion={sesion} /> : <Login />;
 }
 
 function Login() {
@@ -65,7 +70,7 @@ function Login() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="entrada"
               placeholder="usuario@sevasa.com"
             />
           </div>
@@ -80,7 +85,7 @@ function Login() {
               autoComplete="current-password"
               value={clave}
               onChange={(e) => setClave(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="entrada"
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -97,11 +102,40 @@ function Login() {
   );
 }
 
-function Inicio({ sesion }: { sesion: Session }) {
+const PAGINAS = [
+  { clave: 'balanza', titulo: 'Balanza' },
+  { clave: 'asientos', titulo: 'Asientos' },
+  { clave: 'mayor', titulo: 'Libro mayor' },
+  { clave: 'catalogo', titulo: 'Catálogo' },
+  { clave: 'periodos', titulo: 'Períodos' },
+] as const;
+
+type Pagina = (typeof PAGINAS)[number]['clave'];
+
+function Sistema({ sesion }: { sesion: Session }) {
+  const [pagina, setPagina] = useState<Pagina>('balanza');
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-        <h1 className="font-bold text-slate-800">SEVASA Contable</h1>
+      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-6">
+          <h1 className="font-bold text-slate-800">SEVASA Contable</h1>
+          <nav className="flex gap-1">
+            {PAGINAS.map((p) => (
+              <button
+                key={p.clave}
+                onClick={() => setPagina(p.clave)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                  pagina === p.clave
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {p.titulo}
+              </button>
+            ))}
+          </nav>
+        </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-slate-500">{sesion.user.email}</span>
           <button
@@ -112,14 +146,12 @@ function Inicio({ sesion }: { sesion: Session }) {
           </button>
         </div>
       </header>
-      <main className="p-8">
-        <div className="bg-white rounded-xl shadow p-8 max-w-lg">
-          <h2 className="text-lg font-semibold text-slate-800">✅ F0 — login funcionando</h2>
-          <p className="text-sm text-slate-500 mt-2">
-            Los módulos aparecerán aquí conforme avancen las fases: F1 contabilidad,
-            F2 facturación y CxC, F3 bancos…
-          </p>
-        </div>
+      <main className="p-6">
+        {pagina === 'balanza' && <Balanza />}
+        {pagina === 'asientos' && <Asientos />}
+        {pagina === 'mayor' && <Mayor />}
+        {pagina === 'catalogo' && <Catalogo />}
+        {pagina === 'periodos' && <Periodos />}
       </main>
     </div>
   );
