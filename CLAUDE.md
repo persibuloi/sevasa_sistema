@@ -85,6 +85,11 @@ cd app && npm run build
   (tinta/fondo/verde/borde), Schibsted Grotesk + IBM Plex Mono (.cifra), clases
   .entrada/.etiqueta/.boton-*/.tarjeta/.insignia-*/.tabla. Shell con sidebar oscuro.
   TODA pantalla nueva usa estas clases (no estilos ad-hoc).
+- Configuración operativa ✅ (migración 005): sucursales, bodegas, vendedores;
+  series cuelgan de sucursal (series.tienda queda como texto legado); facturas
+  llevan vendedor opcional. Pantalla Administración → Configuración con pestañas
+  (sucursales/bodegas/vendedores/series/parámetros). CRUD de config = permiso
+  admin/editar, todo a bitácora.
 - F2 pendiente: recibos de cobro, notas de crédito, antigüedad de cartera,
   facturas manuales (talonarios), impresión/formato DGI, restyle de pantallas F1
   al sistema de diseño nuevo.

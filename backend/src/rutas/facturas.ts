@@ -53,10 +53,14 @@ async function periodoAbierto(anoMes: string): Promise<string | null> {
 }
 
 const SQL_LISTA = `
-  SELECT f.*, t.nombre AS cliente, s.tienda
+  SELECT f.*, t.nombre AS cliente,
+         COALESCE(su.nombre, s.tienda) AS tienda,
+         v.nombre AS vendedor
   FROM facturas f
   JOIN terceros t ON t.id = f.tercero_id
-  JOIN series s   ON s.serie = f.serie`;
+  JOIN series s   ON s.serie = f.serie
+  LEFT JOIN sucursales su ON su.codigo = s.sucursal
+  LEFT JOIN vendedores v  ON v.id = f.vendedor_id`;
 
 rutasFacturas.get('/', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
   const estado = typeof req.query.estado === 'string' && ['borrador', 'emitida', 'anulada'].includes(req.query.estado)
@@ -83,7 +87,7 @@ rutasFacturas.get('/:id', requierePermiso('facturacion', 'ver'), envolver(async 
 
 // Crear BORRADOR (sin número — el número se asigna solo al emitir)
 rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async (req, res) => {
-  const { serie, fecha, tercero_id, tipo_pago, lineas, notas } = req.body ?? {};
+  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id } = req.body ?? {};
   if (!serie || !tercero_id || !['contado', 'credito'].includes(tipo_pago)) {
     res.status(400).json({ error: 'serie, tercero_id y tipo_pago (contado/credito) son obligatorios' });
     return;
@@ -100,9 +104,10 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
   }
   const factura = await enTransaccion(async (bd: PoolClient) => {
     const f = await bd.query(
-      `INSERT INTO facturas (serie, fecha, tercero_id, tipo_pago, subtotal, iva, total, notas, creado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [serie, fecha, tercero_id, tipo_pago, totales.subtotal, totales.iva, totales.total, notas || null, req.usuario!.id]
+      `INSERT INTO facturas (serie, fecha, tercero_id, tipo_pago, subtotal, iva, total, notas, vendedor_id, creado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [serie, fecha, tercero_id, tipo_pago, totales.subtotal, totales.iva, totales.total,
+       notas || null, vendedor_id || null, req.usuario!.id]
     );
     for (const l of totales.lineas) {
       await bd.query(
@@ -118,7 +123,7 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
 
 // Editar BORRADOR (reemplaza encabezado y líneas; la BD bloquea si no es borrador)
 rutasFacturas.put('/:id', requierePermiso('facturacion', 'editar'), envolver(async (req, res) => {
-  const { serie, fecha, tercero_id, tipo_pago, lineas, notas } = req.body ?? {};
+  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id } = req.body ?? {};
   const actual = await pool.query('SELECT estado FROM facturas WHERE id = $1', [req.params.id]);
   if (actual.rowCount === 0) {
     res.status(404).json({ error: 'Factura no existe' });
@@ -138,11 +143,11 @@ rutasFacturas.put('/:id', requierePermiso('facturacion', 'editar'), envolver(asy
     const f = await bd.query(
       `UPDATE facturas
        SET serie = $2, fecha = $3, tercero_id = $4, tipo_pago = $5,
-           subtotal = $6, iva = $7, total = $8, notas = $9,
-           actualizado_por = $10, actualizado_en = now()
+           subtotal = $6, iva = $7, total = $8, notas = $9, vendedor_id = $10,
+           actualizado_por = $11, actualizado_en = now()
        WHERE id = $1 RETURNING *`,
       [req.params.id, serie, fecha, tercero_id, tipo_pago,
-       totales.subtotal, totales.iva, totales.total, notas || null, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, vendedor_id || null, req.usuario!.id]
     );
     await bd.query('DELETE FROM factura_lineas WHERE factura_id = $1', [req.params.id]);
     for (const l of totales.lineas) {

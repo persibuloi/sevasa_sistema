@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import Facturas from './paginas/Facturas';
 import Clientes from './paginas/Clientes';
+import Configuracion from './paginas/Configuracion';
 import Catalogo from './paginas/Catalogo';
 import Asientos from './paginas/Asientos';
 import Balanza from './paginas/Balanza';
@@ -170,6 +171,12 @@ const GRUPOS = [
       { clave: 'periodos', titulo: 'Períodos', trazos: ['M8 2v4', 'M16 2v4', 'M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'] },
     ],
   },
+  {
+    titulo: 'Administración',
+    items: [
+      { clave: 'configuracion', titulo: 'Configuración', trazos: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v2.5', 'M12 19.5V22', 'M2 12h2.5', 'M19.5 12H22', 'M4.6 4.6l1.8 1.8', 'M17.6 17.6l1.8 1.8', 'M19.4 4.6l-1.8 1.8', 'M6.4 17.6l-1.8 1.8'] },
+    ],
+  },
 ] as const;
 
 type Pagina = (typeof GRUPOS)[number]['items'][number]['clave'];
@@ -182,6 +189,7 @@ const TITULOS: Record<Pagina, string> = {
   mayor: 'Libro mayor',
   catalogo: 'Catálogo de cuentas',
   periodos: 'Períodos contables',
+  configuracion: 'Configuración',
 };
 
 function Sistema({ sesion }: { sesion: Session }) {
@@ -256,6 +264,7 @@ function Sistema({ sesion }: { sesion: Session }) {
           {pagina === 'mayor' && <Mayor />}
           {pagina === 'catalogo' && <Catalogo />}
           {pagina === 'periodos' && <Periodos />}
+          {pagina === 'configuracion' && <Configuracion />}
         </main>
       </div>
     </div>

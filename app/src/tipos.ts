@@ -65,11 +65,44 @@ export interface LineaMayor {
 
 export interface Serie {
   serie: string;
-  tienda: string;
+  tienda: string | null;
+  sucursal: string | null;
+  sucursal_nombre?: string | null;
   tipo: 'sistema' | 'manual';
   prefijo: string;
   ultimo_numero: number;
   activa: boolean;
+}
+
+export interface Sucursal {
+  codigo: string;
+  nombre: string;
+  direccion: string | null;
+  telefono: string | null;
+  activa: boolean;
+}
+
+export interface Bodega {
+  codigo: string;
+  nombre: string;
+  sucursal: string;
+  sucursal_nombre?: string | null;
+  activa: boolean;
+}
+
+export interface Vendedor {
+  id: number;
+  codigo: string | null;
+  nombre: string;
+  sucursal: string | null;
+  sucursal_nombre?: string | null;
+  activo: boolean;
+}
+
+export interface ClaveConfig {
+  clave: string;
+  valor: string;
+  descripcion: string | null;
 }
 
 export interface Cliente {
@@ -107,6 +140,8 @@ export interface Factura {
   total: string | number;
   notas: string | null;
   asiento_id: number | null;
+  vendedor_id: number | null;
+  vendedor?: string | null;
   lineas?: LineaFactura[];
 }
 

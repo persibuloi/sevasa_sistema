@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Cliente, Factura, Serie } from '../tipos';
+import type { Cliente, Factura, Serie, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
 
 type Vista = { modo: 'lista' } | { modo: 'editor'; id: number | null };
@@ -123,6 +123,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [factura, setFactura] = useState<Factura | null>(null);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [series, setSeries] = useState<Serie[]>([]);
+  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -130,6 +131,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [serie, setSerie] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [terceroId, setTerceroId] = useState('');
+  const [vendedorId, setVendedorId] = useState('');
   const [tipoPago, setTipoPago] = useState<'contado' | 'credito'>('contado');
   const [notas, setNotas] = useState('');
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
@@ -141,10 +143,12 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       api.get<Cliente[]>('/clientes'),
       api.get<Serie[]>('/series'),
       api.get<Array<{ clave: string; valor: string }>>('/config'),
+      api.get<Vendedor[]>('/configuracion/vendedores'),
     ])
-      .then(([c, s, cfg]) => {
+      .then(([c, s, cfg, v]) => {
         setClientes(c.filter((x) => x.activo));
         setSeries(s.filter((x) => x.activa && x.tipo === 'sistema'));
+        setVendedores(v.filter((x) => x.activo));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
         if (!id && s.length > 0) setSerie(s[0]?.serie ?? '');
@@ -159,6 +163,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           setSerie(f.serie);
           setFecha(f.fecha.slice(0, 10));
           setTerceroId(String(f.tercero_id));
+          setVendedorId(f.vendedor_id ? String(f.vendedor_id) : '');
           setTipoPago(f.tipo_pago);
           setNotas(f.notas ?? '');
           setLineas(
@@ -194,6 +199,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       serie,
       fecha,
       tercero_id: Number(terceroId),
+      vendedor_id: vendedorId ? Number(vendedorId) : null,
       tipo_pago: tipoPago,
       notas,
       lineas: lineas
@@ -339,6 +345,23 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                   ))}
                 </select>
               </div>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4 mb-5">
+            <div>
+              <label className="etiqueta">Vendedor (opcional)</label>
+              <select
+                value={vendedorId}
+                onChange={(e) => setVendedorId(e.target.value)}
+                disabled={soloLectura}
+                className="entrada"
+              >
+                <option value="">— sin vendedor —</option>
+                {vendedores.map((v) => (
+                  <option key={v.id} value={v.id}>{v.codigo ? `${v.codigo} · ` : ''}{v.nombre}</option>
+                ))}
+              </select>
             </div>
           </div>
 
