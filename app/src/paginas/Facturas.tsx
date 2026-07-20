@@ -184,6 +184,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [productos, setProductos] = useState<Producto[]>([]);
   const [bodegas, setBodegas] = useState<Bodega[]>([]);
   const [filtrarPorBodega, setFiltrarPorBodega] = useState(true);
+  const [bloquearSinExistencia, setBloquearSinExistencia] = useState(true);
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -263,6 +264,8 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
         setBodegas(b.filter((x) => x.activa));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
+        const bloqueo = cfg.find((x) => x.clave === 'ventas_bloquear_sin_existencia');
+        setBloquearSinExistencia((bloqueo?.valor ?? 'si') === 'si');
         const filtro = cfg.find((x) => x.clave === 'ventas_filtrar_por_bodega');
         setFiltrarPorBodega((filtro?.valor ?? 'si') === 'si');
         if (!id) setSerie(deFactura.find((x) => x.tipo === 'sistema')?.serie ?? deFactura[0]?.serie ?? '');
@@ -305,10 +308,30 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     return { subtotal: subtotalCent / 100, iva: ivaCent / 100, total: (subtotalCent + ivaCent) / 100 };
   }, [lineas, tasaIva]);
 
+  // Con el bloqueo activo: productos cuya cantidad facturada supera la
+  // existencia de la bodega (acumulado si el producto se repite en líneas)
+  const faltantes = useMemo(() => {
+    if (!bloquearSinExistencia || !bodegaVenta) return [] as Array<{ nombre: string; pide: number; hay: number }>;
+    const pedido = new Map<string, number>();
+    for (const l of lineas) {
+      if (l.productoId && Number(l.cantidad) > 0) {
+        pedido.set(l.productoId, (pedido.get(l.productoId) ?? 0) + Number(l.cantidad));
+      }
+    }
+    const res: Array<{ nombre: string; pide: number; hay: number }> = [];
+    for (const [pid, pide] of pedido) {
+      const p = productos.find((x) => String(x.id) === pid);
+      const hay = Number(p?.existencia_bodega ?? 0);
+      if (p && pide > hay) res.push({ nombre: `${p.codigo} · ${p.nombre}`, pide, hay });
+    }
+    return res;
+  }, [bloquearSinExistencia, bodegaVenta, lineas, productos]);
+
   const valida =
     serie !== '' &&
     terceroId !== '' &&
     lineas.some((l) => l.descripcion && Number(l.cantidad) > 0 && Number(l.precio) > 0);
+  const puedeEmitir = valida && faltantes.length === 0;  // el borrador sí se guarda
 
   function cuerpo() {
     return {
@@ -697,11 +720,23 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
             </div>
           </dl>
 
+          {!soloLectura && faltantes.length > 0 && (
+            <div className="mt-4 rounded-lg bg-rojo-suave border border-rojo/20 p-3 text-[12px]">
+              <p className="font-semibold text-rojo mb-1">Sin existencia suficiente en {bodegaVenta?.nombre}:</p>
+              {faltantes.map((f) => (
+                <p key={f.nombre} className="text-rojo/90">
+                  {f.nombre}: pedís <strong className="cifra">{f.pide}</strong>, hay <strong className="cifra">{f.hay}</strong>
+                </p>
+              ))}
+              <p className="text-slate-500 mt-1">Ajustá la cantidad o hacé un traslado a esta bodega.</p>
+            </div>
+          )}
+
           {!soloLectura && (
             <div className="mt-6 space-y-2">
               <button
                 onClick={() => void emitir()}
-                disabled={!valida || ocupado || (serieManual && !(Number(numeroManual) > 0))}
+                disabled={!puedeEmitir || ocupado || (serieManual && !(Number(numeroManual) > 0))}
                 className="boton-primario w-full"
               >
                 {serieManual ? 'Grabar factura manual' : 'Emitir factura'}

@@ -63,9 +63,29 @@ export async function entradaInventario(bd: PoolClient, m: MovimientoInv, costoU
   await kardex(bd, m, tipoEntrada(m.origenTipo), m.cantidad, costoUnitario);
 }
 
-/** Salida por venta: usa el promedio vigente (no lo cambia). Devuelve el costo unitario aplicado. */
-export async function salidaInventario(bd: PoolClient, m: MovimientoInv): Promise<number> {
+/** Salida por venta: usa el promedio vigente (no lo cambia). Devuelve el costo
+ *  unitario aplicado. Si `bloquear` es true, rechaza la salida cuando la
+ *  existencia de esa bodega no alcanza (el producto ya está lockeado, así que
+ *  el chequeo es a prueba de concurrencia). */
+export async function salidaInventario(bd: PoolClient, m: MovimientoInv, bloquear = false): Promise<number> {
   const { promedio } = await bloquearProducto(bd, m.productoId);
+  if (bloquear) {
+    const e = await bd.query(
+      'SELECT COALESCE(cantidad, 0) AS c FROM existencias WHERE producto_id = $1 AND bodega = $2',
+      [m.productoId, m.bodega]
+    );
+    const disponible = Number(e.rows[0]?.c ?? 0);
+    if (disponible < m.cantidad) {
+      const p = await bd.query('SELECT codigo, nombre FROM productos WHERE id = $1', [m.productoId]);
+      throw Object.assign(
+        new Error(
+          `Sin existencia suficiente de ${p.rows[0]?.codigo} ${p.rows[0]?.nombre} en ${m.bodega}: ` +
+          `disponible ${disponible}, se factura ${m.cantidad}`
+        ),
+        { code: 'P0001' }  // el middleware lo traduce a 400 con el mensaje
+      );
+    }
+  }
   await moverExistencia(bd, m.productoId, m.bodega, -m.cantidad);
   await kardex(bd, m, 'salida_venta', -m.cantidad, promedio);
   return promedio;

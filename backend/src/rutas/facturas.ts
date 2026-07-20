@@ -336,8 +336,9 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
 
     const cfg = await leerConfig(bd, [
       'cuenta_caja', 'cuenta_cxc', 'cuenta_ventas', 'cuenta_iva',
-      'cuenta_costo_ventas', 'cuenta_inventario',
+      'cuenta_costo_ventas', 'cuenta_inventario', 'ventas_bloquear_sin_existencia',
     ]);
+    const bloquearSinExistencia = cfg.ventas_bloquear_sin_existencia === 'si';
 
     const asiento = await bd.query(
       `INSERT INTO asientos (fecha, ano_mes, tipo_origen, origen_id, concepto, creado_por)
@@ -386,7 +387,7 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
           usuarioId: req.usuario!.id,
           origenTipo: 'factura',
           origenId: id,
-        });
+        }, bloquearSinExistencia);
         costoCent += Math.round(Number(l.cantidad) * costoUnitario * 100);
       }
       if (costoCent > 0) {

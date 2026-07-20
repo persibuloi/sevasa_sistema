@@ -189,6 +189,19 @@ describe('facturación', () => {
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/bodega/i);
   }, 60_000);
+
+  it('bloquea emitir más cantidad que la existencia de la bodega', async () => {
+    const b = await request(app).post('/api/facturas').send({
+      serie: 'A-CEN', fecha: '2026-07-10', tercero_id: 1, tipo_pago: 'contado', bodega: 'BOD-CEN',
+      lineas: [{ producto_id: 1, descripcion: 'x', cantidad: 99999, precio_unitario: 30 }],
+    });
+    const r = await request(app).post(`/api/facturas/${b.body.id}/emitir`).send({});
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/existencia/i);
+    // La factura quedó borrador (no tomó número ni descargó inventario)
+    const f = await pool.query('SELECT estado FROM facturas WHERE id = $1', [b.body.id]);
+    expect(f.rows[0].estado).toBe('borrador');
+  }, 60_000);
 });
 
 describe('sobreaplicaciones (auditoría P0)', () => {

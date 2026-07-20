@@ -59,7 +59,10 @@ autorizados (rol contador).
   acreditable vs CxP/Caja + kardex + promedio) → factura (descarga al promedio y mete
   costo de venta EN EL MISMO asiento de la venta) → devolución por NC reingresa al costo
   con que salió. La bodega de la venta se resuelve por la sucursal de la serie.
-- Existencia negativa: permitida (avisa en rojo en Productos), no bloquea la venta.
+- Existencia insuficiente al facturar: BLOQUEADA por defecto (parámetro
+  `ventas_bloquear_sin_existencia`, DECIDIDO por el usuario). salidaInventario
+  valida con el producto lockeado (a prueba de concurrencia); el editor avisa
+  antes de emitir. Con el parámetro en 'no' vuelve a permitir el negativo (rojo).
 
 ## Cuentas de enlace y parámetros (tabla `config`, pantalla Configuración → Parámetros)
 
