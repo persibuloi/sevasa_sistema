@@ -35,6 +35,7 @@ const CUENTAS: Array<[string, string, string, string | null, boolean]> = [
   ['2-01',     'Cuentas por pagar',       'pasivo',  '2',       true],
   ['2-02',     'Impuestos por pagar',     'pasivo',  '2',       false],
   ['2-02-01',  'IVA por pagar (15%)',     'pasivo',  '2-02',    true],
+  ['2-02-02',  'Retención IR por pagar',  'pasivo',  '2-02',    true],
   ['3',        'CAPITAL',                 'capital', null,      false],
   ['3-01',     'Capital social',          'capital', '3',       true],
   ['3-02',     'Resultados acumulados',   'capital', '3',       true],
@@ -199,6 +200,14 @@ async function sembrar(): Promise<void> {
         ('BAC',    'Operativa córdobas', '360-123456-7', 'NIO', '1-01-02-01'),
         ('Lafise', 'Operativa dólares',  '110-987654-3', 'USD', '1-01-02-02')`);
     console.log('✅ 2 cuentas bancarias');
+
+    // Tipos de retención (SEVASA retiene a proveedores)
+    await bd.query(`
+      INSERT INTO retencion_tipos (codigo, nombre, tasa, base, cuenta_contable, aplica) VALUES
+        ('IR-2',  'Retención IR 2% (bienes y servicios)', 0.02, 'subtotal', '2-02-02', 'compra'),
+        ('IR-10', 'Retención IR 10% (servicios profesionales)', 0.10, 'subtotal', '2-02-02', 'compra')
+      ON CONFLICT DO NOTHING`);
+    console.log('✅ 2 tipos de retención');
 
     // Junio queda cerrado para demostrar el candado de período
     await bd.query(`UPDATE periodos SET estado = 'cerrado', cerrado_en = now() WHERE ano_mes = '2026-06'`);

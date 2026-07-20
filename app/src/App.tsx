@@ -14,6 +14,7 @@ import Asientos from './paginas/Asientos';
 import Balanza from './paginas/Balanza';
 import Mayor from './paginas/Mayor';
 import Periodos from './paginas/Periodos';
+import Retenciones from './paginas/Retenciones';
 import Configuracion from './paginas/Configuracion';
 
 export default function App() {
@@ -209,6 +210,7 @@ const GRUPOS = [
       { ruta: '/mayor', titulo: 'Libro mayor', trazos: ['M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z', 'M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z'] },
       { ruta: '/catalogo', titulo: 'Catálogo', trazos: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'] },
       { ruta: '/periodos', titulo: 'Períodos', trazos: ['M8 2v4', 'M16 2v4', 'M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'] },
+      { ruta: '/retenciones', titulo: 'Retenciones', trazos: ['M12 2v20', 'M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'] },
     ],
   },
   {
@@ -244,6 +246,7 @@ const TITULOS: Record<string, string> = {
   '/mayor': 'Libro mayor',
   '/catalogo': 'Catálogo de cuentas',
   '/periodos': 'Períodos contables',
+  '/retenciones': 'Retenciones',
   '/configuracion': 'Configuración',
 };
 
@@ -361,6 +364,7 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/mayor" element={<Mayor />} />
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/periodos" element={<Periodos />} />
+            <Route path="/retenciones" element={<Retenciones />} />
             <Route path="/configuracion" element={<Navigate to="/configuracion/sucursales" replace />} />
             <Route path="/configuracion/:pestana" element={<Configuracion />} />
             <Route path="*" element={<Navigate to="/facturas" replace />} />

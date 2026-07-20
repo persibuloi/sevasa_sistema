@@ -37,6 +37,7 @@ beforeAll(async () => {
       ('1-01-05',    'IVA acreditable', 'activo',  1, true),
       ('2-01',       'CxP',             'pasivo',  1, true),
       ('2-02-01',    'IVA por pagar',   'pasivo',  1, true),
+      ('2-03',       'Retención IR por pagar', 'pasivo', 1, true),
       ('4-01',       'Ventas',          'ingreso', 1, true),
       ('5-01',       'Costo de ventas', 'costo',   1, true)`);
   await pool.query(`INSERT INTO sucursales (codigo, nombre) VALUES ('CEN', 'Central')`);
@@ -53,6 +54,9 @@ beforeAll(async () => {
   await pool.query(`
     INSERT INTO cuentas_bancarias (banco, nombre, numero, moneda, cuenta_contable)
     VALUES ('BAC', 'Operativa', '000-1', 'NIO', '1-01-02-01')`);
+  await pool.query(`
+    INSERT INTO retencion_tipos (codigo, nombre, tasa, base, cuenta_contable, aplica)
+    VALUES ('IR-2', 'Retención IR 2%', 0.02, 'subtotal', '2-03', 'compra')`);
   await pool.query(`INSERT INTO usuarios (id, email, nombre) VALUES ($1, 'pruebas@sevasa.local', 'Pruebas')`, [USUARIO]);
 }, 300_000);
 
@@ -284,6 +288,34 @@ describe('anulaciones espejo', () => {
       `SELECT COALESCE(SUM(debito), 0) AS d, COALESCE(SUM(credito), 0) AS c FROM movimientos`
     );
     expect(Number(balanza.rows[0].d)).toBeCloseTo(Number(balanza.rows[0].c), 2);
+  }, 60_000);
+});
+
+describe('retenciones (F4)', () => {
+  it('compra con retención IR 2%: acredita la cuenta, baja la CxP al neto y el asiento cuadra', async () => {
+    const b = await request(app).post('/api/compras').send({
+      tercero_id: 2, numero_documento: 'FC-RET', fecha: '2026-07-07', tipo_pago: 'credito', bodega: 'BOD-CEN',
+      retenciones_codigos: ['IR-2'],
+      lineas: [{ producto_id: 1, cantidad: 10, costo_unitario: 20 }],
+    });
+    expect(b.status).toBe(201);
+    const reg = await request(app).post(`/api/compras/${b.body.id}/registrar`).send({});
+    expect(reg.status).toBe(200);
+    // subtotal 200, IVA 30, total 230, retención 2% de 200 = 4, neto CxP = 226
+    const movs = await pool.query(
+      `SELECT cuenta, debito, credito FROM movimientos WHERE asiento_id = $1 ORDER BY id`,
+      [reg.body.asiento_id]
+    );
+    const mapa = new Map(movs.rows.map((m) => [m.cuenta, m]));
+    expect(Number(mapa.get('2-03')?.credito)).toBeCloseTo(4, 2);    // retención por pagar
+    expect(Number(mapa.get('2-01')?.credito)).toBeCloseTo(226, 2);  // CxP neta
+    const suma = movs.rows.reduce((s, m) => s + Number(m.debito) - Number(m.credito), 0);
+    expect(suma).toBeCloseTo(0, 2);
+
+    // La CxP pendiente del proveedor debe ser el neto (226), no el total (230)
+    const cxp = await request(app).get(`/api/bancos/cxp/2`);
+    const fila = (cxp.body as Array<{ numero_documento: string; saldo: string }>).find((f) => f.numero_documento === 'FC-RET');
+    expect(Number(fila?.saldo)).toBeCloseTo(226, 2);
   }, 60_000);
 });
 

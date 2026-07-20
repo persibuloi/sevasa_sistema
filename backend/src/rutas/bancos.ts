@@ -108,10 +108,11 @@ rutasBancos.put('/cuentas/:id', requierePermiso('admin', 'editar'), envolver(asy
 /* -------------------------------------------------------------- CxP a pagar */
 
 const SQL_SALDOS_CXP = `
-  SELECT c.id, c.numero_documento, c.fecha, c.total, c.tercero_id,
-         t.nombre AS proveedor, t.terminos_dias,
+  SELECT c.id, c.numero_documento, c.fecha,
+         (c.total - COALESCE(ret.retenido, 0)) AS total,   -- CxP real = total − retenciones
+         c.tercero_id, t.nombre AS proveedor, t.terminos_dias,
          COALESCE(p.pagado, 0) AS pagado,
-         (c.total - COALESCE(p.pagado, 0)) AS saldo
+         (c.total - COALESCE(ret.retenido, 0) - COALESCE(p.pagado, 0)) AS saldo
   FROM compras c
   JOIN terceros t ON t.id = c.tercero_id
   LEFT JOIN (
@@ -120,6 +121,9 @@ const SQL_SALDOS_CXP = `
     JOIN movimientos_banco mb ON mb.id = pa.movimiento_banco_id AND mb.estado = 'emitido'
     GROUP BY pa.compra_id
   ) p ON p.compra_id = c.id
+  LEFT JOIN (
+    SELECT compra_id, SUM(monto) AS retenido FROM compra_retenciones GROUP BY compra_id
+  ) ret ON ret.compra_id = c.id
   WHERE c.estado = 'registrada' AND c.tipo_pago = 'credito'`;
 
 rutasBancos.get('/cxp', requierePermiso('bancos', 'ver'), envolver(async (_req, res) => {

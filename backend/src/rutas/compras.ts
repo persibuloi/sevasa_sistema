@@ -88,13 +88,16 @@ rutasCompras.post('/', requierePermiso('compras', 'crear'), envolver(async (req,
     res.status(400).json({ error: 'Líneas inválidas: producto, cantidad > 0 y costo >= 0' });
     return;
   }
+  const codigos = Array.isArray(req.body?.retenciones_codigos)
+    ? (req.body.retenciones_codigos as unknown[]).map(String)
+    : [];
   const compra = await enTransaccion(async (bd: PoolClient) => {
     const c = await bd.query(
       `INSERT INTO compras (orden_compra_id, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-                            subtotal, iva, total, notas, creado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+                            subtotal, iva, total, notas, retenciones_codigos, creado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
       [orden_compra_id || null, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-       totales.subtotal, totales.iva, totales.total, notas || null, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, codigos, req.usuario!.id]
     );
     for (const l of totales.lineas) {
       await bd.query(
@@ -125,14 +128,18 @@ rutasCompras.put('/:id', requierePermiso('compras', 'editar'), envolver(async (r
     res.status(400).json({ error: 'Líneas inválidas: producto, cantidad > 0 y costo >= 0' });
     return;
   }
+  const codigos = Array.isArray(req.body?.retenciones_codigos)
+    ? (req.body.retenciones_codigos as unknown[]).map(String)
+    : [];
   const compra = await enTransaccion(async (bd: PoolClient) => {
     const c = await bd.query(
       `UPDATE compras
        SET tercero_id = $2, numero_documento = $3, fecha = $4, tipo_pago = $5, bodega = $6,
-           subtotal = $7, iva = $8, total = $9, notas = $10, actualizado_por = $11, actualizado_en = now()
+           subtotal = $7, iva = $8, total = $9, notas = $10, retenciones_codigos = $11,
+           actualizado_por = $12, actualizado_en = now()
        WHERE id = $1 RETURNING *`,
       [req.params.id, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-       totales.subtotal, totales.iva, totales.total, notas || null, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, codigos, req.usuario!.id]
     );
     await bd.query('DELETE FROM compra_lineas WHERE compra_id = $1', [req.params.id]);
     for (const l of totales.lineas) {
@@ -183,6 +190,26 @@ rutasCompras.post('/:id/registrar', requierePermiso('compras', 'crear'), envolve
     const proveedor = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [compra.tercero_id]);
     const cfg = await leerConfig(bd, ['cuenta_inventario', 'cuenta_iva_acreditable', 'cuenta_cxp', 'cuenta_caja']);
 
+    // Retenciones efectuadas: cada tipo acredita su cuenta y baja el neto a pagar
+    const codigos: string[] = compra.retenciones_codigos ?? [];
+    const retenciones: Array<{ codigo: string; cuenta: string; base: number; monto: number }> = [];
+    let retencionCent = 0;
+    for (const codigo of codigos) {
+      const rt = await bd.query(
+        `SELECT tasa, base, cuenta_contable FROM retencion_tipos WHERE codigo = $1 AND activo AND aplica = 'compra'`,
+        [codigo]
+      );
+      if (rt.rowCount === 0) return { error: 400, mensaje: `Retención "${codigo}" no existe, está inactiva o no aplica a compras` };
+      const baseMonto = rt.rows[0].base === 'iva' ? Number(compra.iva)
+        : rt.rows[0].base === 'total' ? Number(compra.total)
+        : Number(compra.subtotal);
+      const montoCent = Math.round(baseMonto * Number(rt.rows[0].tasa) * 100);
+      retencionCent += montoCent;
+      retenciones.push({ codigo, cuenta: rt.rows[0].cuenta_contable, base: baseMonto, monto: montoCent / 100 });
+    }
+    const netoAPagar = Math.round(Number(compra.total) * 100) - retencionCent;
+    if (netoAPagar < 0) return { error: 400, mensaje: 'Las retenciones superan el total de la compra' };
+
     const asiento = await bd.query(
       `INSERT INTO asientos (fecha, ano_mes, tipo_origen, origen_id, concepto, creado_por)
        VALUES ($1, $2, 'compra', $3, $4, $5) RETURNING id`,
@@ -203,11 +230,24 @@ rutasCompras.post('/:id/registrar', requierePermiso('compras', 'crear'), envolve
         [asientoId, cfg.cuenta_iva_acreditable, compra.iva, compra.numero_documento]
       );
     }
+    // Cada retención: crédito a su cuenta (pasivo con la DGI)
+    for (const r of retenciones) {
+      await bd.query(
+        `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, documento_ref)
+         VALUES ($1, $2, 0, $3, $4)`,
+        [asientoId, r.cuenta, r.monto, compra.numero_documento]
+      );
+      await bd.query(
+        `INSERT INTO compra_retenciones (compra_id, tipo_codigo, base, monto) VALUES ($1, $2, $3, $4)`,
+        [id, r.codigo, r.base, r.monto]
+      );
+    }
+    // CxP/Caja recibe el NETO (total − retenciones)
     const cuentaAbono = compra.tipo_pago === 'credito' ? cfg.cuenta_cxp : cfg.cuenta_caja;
     await bd.query(
       `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, tercero_id, documento_ref)
        VALUES ($1, $2, 0, $3, $4, $5)`,
-      [asientoId, cuentaAbono, compra.total,
+      [asientoId, cuentaAbono, netoAPagar / 100,
        compra.tipo_pago === 'credito' ? compra.tercero_id : null, compra.numero_documento]
     );
 

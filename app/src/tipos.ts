@@ -118,6 +118,37 @@ export interface ClaveConfig {
   descripcion: string | null;
 }
 
+export interface RetencionTipo {
+  codigo: string;
+  nombre: string;
+  tasa: string | number;
+  base: 'subtotal' | 'iva' | 'total';
+  cuenta_contable: string;
+  cuenta_nombre?: string;
+  aplica: 'compra' | 'venta';
+  activo: boolean;
+}
+
+export interface FilaRetencion {
+  tipo_codigo: string;
+  tipo_nombre: string;
+  tasa: string | number;
+  tercero_id: number;
+  proveedor?: string;
+  cliente?: string;
+  ruc?: string | null;
+  base: string | number;
+  monto: string | number;
+  documentos: number;
+}
+
+export interface ReporteRetenciones {
+  desde: string | null;
+  hasta: string | null;
+  filas: FilaRetencion[];
+  total: number;
+}
+
 export interface Cliente {
   id: number;
   ruc: string | null;
@@ -167,6 +198,7 @@ export interface Compra {
   total: string | number;
   notas: string | null;
   asiento_id: number | null;
+  retenciones_codigos?: string[];
   lineas?: LineaCompra[];
 }
 

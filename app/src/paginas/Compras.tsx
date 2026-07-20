@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
-import type { Bodega, Cliente, Compra, OrdenCompra, Producto } from '../tipos';
+import type { Bodega, Cliente, Compra, OrdenCompra, Producto, RetencionTipo } from '../tipos';
 import { montoSiempre } from '../formato';
 
 const PESTANAS = [
@@ -143,6 +143,8 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
   const [proveedores, setProveedores] = useState<Cliente[]>([]);
   const [bodegas, setBodegas] = useState<Bodega[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [tiposRet, setTiposRet] = useState<RetencionTipo[]>([]);
+  const [retenciones, setRetenciones] = useState<string[]>([]);
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -165,11 +167,13 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
       api.get<Bodega[]>('/configuracion/bodegas'),
       api.get<Producto[]>('/productos'),
       api.get<Array<{ clave: string; valor: string }>>('/config'),
+      api.get<RetencionTipo[]>('/retenciones/tipos'),
     ])
-      .then(([pr, b, p, cfg]) => {
+      .then(([pr, b, p, cfg, rt]) => {
         setProveedores(pr.filter((x) => x.activo));
         setBodegas(b.filter((x) => x.activa));
         setProductos(p.filter((x) => x.activo));
+        setTiposRet(rt.filter((x) => x.activo && x.aplica === 'compra'));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
       })
@@ -186,6 +190,7 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
           setTipoPago(c.tipo_pago);
           setBodega(c.bodega);
           setNotas(c.notas ?? '');
+          setRetenciones(c.retenciones_codigos ?? []);
           setLineas(
             (c.lineas ?? []).map((l) => ({
               productoId: String(l.producto_id),
@@ -213,6 +218,19 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
     terceroId !== '' && numeroDocumento !== '' && bodega !== '' &&
     lineas.some((l) => l.productoId && Number(l.cantidad) > 0 && Number(l.costo) > 0);
 
+  // Retención estimada (el cálculo definitivo lo hace el backend al registrar)
+  const retencion = useMemo(() => {
+    let cent = 0;
+    for (const codigo of retenciones) {
+      const t = tiposRet.find((x) => x.codigo === codigo);
+      if (!t) continue;
+      const base = t.base === 'iva' ? totales.iva : t.base === 'total' ? totales.total : totales.subtotal;
+      cent += Math.round(base * Number(t.tasa) * 100);
+    }
+    return cent / 100;
+  }, [retenciones, tiposRet, totales]);
+  const netoAPagar = Math.round((totales.total - retencion) * 100) / 100;
+
   function cuerpo() {
     return {
       orden_compra_id: prefill?.orden_compra_id ?? compra?.orden_compra_id ?? null,
@@ -222,6 +240,7 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
       tipo_pago: tipoPago,
       bodega,
       notas,
+      retenciones_codigos: retenciones,
       lineas: lineas
         .filter((l) => l.productoId)
         .map((l) => ({
@@ -411,6 +430,32 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
               className="text-sm font-semibold text-verde hover:text-verde-oscuro">+ Agregar línea</button>
           )}
 
+          {tiposRet.length > 0 && (
+            <div className="mt-5">
+              <label className="etiqueta">Retenciones a efectuar al proveedor</label>
+              <div className="flex flex-wrap gap-2">
+                {tiposRet.map((t) => {
+                  const activa = retenciones.includes(t.codigo);
+                  return (
+                    <button
+                      key={t.codigo}
+                      type="button"
+                      disabled={soloLectura}
+                      onClick={() =>
+                        setRetenciones(activa ? retenciones.filter((c) => c !== t.codigo) : [...retenciones, t.codigo])
+                      }
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition ${
+                        activa ? 'bg-verde text-white border-verde' : 'bg-white text-slate-500 border-borde hover:border-slate-300'
+                      }`}
+                    >
+                      {activa ? '✓ ' : ''}{t.nombre} ({(Number(t.tasa) * 100).toFixed(0)}%)
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="mt-5">
             <label className="etiqueta">Notas (opcional)</label>
             <input value={notas} disabled={soloLectura} onChange={(e) => setNotas(e.target.value)} className="entrada" />
@@ -423,9 +468,21 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
             <div className="flex justify-between"><dt className="text-slate-500">Subtotal</dt><dd className="cifra">{montoSiempre(totales.subtotal)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">IVA acreditable ({(tasaIva * 100).toFixed(0)}%)</dt><dd className="cifra">{montoSiempre(totales.iva)}</dd></div>
             <div className="flex justify-between border-t border-borde pt-3 mt-3">
-              <dt className="font-bold text-tinta">Total C$</dt>
-              <dd className="cifra text-xl font-bold text-verde-oscuro">{montoSiempre(totales.total)}</dd>
+              <dt className="font-bold text-tinta">Total factura C$</dt>
+              <dd className="cifra text-lg font-bold text-tinta">{montoSiempre(totales.total)}</dd>
             </div>
+            {retencion > 0 && (
+              <>
+                <div className="flex justify-between text-ambar">
+                  <dt>− Retención (a la DGI)</dt>
+                  <dd className="cifra">{montoSiempre(retencion)}</dd>
+                </div>
+                <div className="flex justify-between border-t border-borde pt-2 mt-1">
+                  <dt className="font-bold text-tinta">Neto a pagar C$</dt>
+                  <dd className="cifra text-xl font-bold text-verde-oscuro">{montoSiempre(netoAPagar)}</dd>
+                </div>
+              </>
+            )}
           </dl>
 
           {!soloLectura && (

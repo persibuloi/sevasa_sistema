@@ -1,13 +1,14 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
-import type { Bodega, ClaveConfig, ControlSerie, Cuenta, Serie, Sucursal, Vendedor } from '../tipos';
+import type { Bodega, ClaveConfig, ControlSerie, Cuenta, RetencionTipo, Serie, Sucursal, Vendedor } from '../tipos';
 
 const PESTANAS = [
   { clave: 'sucursales', titulo: 'Sucursales' },
   { clave: 'bodegas', titulo: 'Bodegas' },
   { clave: 'vendedores', titulo: 'Vendedores' },
   { clave: 'series', titulo: 'Series de factura' },
+  { clave: 'retenciones', titulo: 'Retenciones' },
   { clave: 'parametros', titulo: 'Parámetros' },
 ] as const;
 
@@ -38,6 +39,7 @@ export default function Configuracion() {
       {pestana === 'bodegas' && <TabBodegas />}
       {pestana === 'vendedores' && <TabVendedores />}
       {pestana === 'series' && <TabSeries />}
+      {pestana === 'retenciones' && <TabRetenciones />}
       {pestana === 'parametros' && <TabParametros />}
     </div>
   );
@@ -553,6 +555,129 @@ function TabSeries() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ retenciones */
+
+function TabRetenciones() {
+  const [filas, setFilas] = useState<RetencionTipo[]>([]);
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
+  const [aviso, setAviso] = useState('');
+  const [form, setForm] = useState<{
+    editando: string | null; codigo: string; nombre: string; tasa: string;
+    base: 'subtotal' | 'iva' | 'total'; cuenta_contable: string; aplica: 'compra' | 'venta'; activo: boolean;
+  } | null>(null);
+
+  const cargar = () => api.get<RetencionTipo[]>('/retenciones/tipos').then(setFilas).catch(() => setAviso('❌ Error cargando tipos'));
+  useEffect(() => {
+    void cargar();
+    api.get<Cuenta[]>('/cuentas').then((c) => setCuentas(c.filter((x) => x.es_detalle && x.activa))).catch(() => undefined);
+  }, []);
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    if (!form) return;
+    setAviso('');
+    const datos = {
+      codigo: form.codigo, nombre: form.nombre, tasa: Number(form.tasa) / 100,
+      base: form.base, cuenta_contable: form.cuenta_contable, aplica: form.aplica, activo: form.activo,
+    };
+    try {
+      if (form.editando === null) await api.post('/retenciones/tipos', datos);
+      else await api.put(`/retenciones/tipos/${form.editando}`, datos);
+      setAviso(`✅ Retención ${form.codigo} guardada`);
+      setForm(null);
+      await cargar();
+    } catch (err) {
+      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'Error al guardar'}`);
+    }
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex justify-end mb-3">
+        <button onClick={() => setForm({ editando: null, codigo: '', nombre: '', tasa: '2', base: 'subtotal', cuenta_contable: '', aplica: 'compra', activo: true })} className="boton-primario">
+          + Nuevo tipo de retención
+        </button>
+      </div>
+      <Aviso texto={aviso} />
+      {form && (
+        <PanelForm onSubmit={guardar} alCancelar={() => setForm(null)}>
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="etiqueta">Código</label>
+              <input required disabled={form.editando !== null} value={form.codigo} placeholder="IR-2"
+                onChange={(e) => setForm({ ...form, codigo: e.target.value.toUpperCase() })} className="entrada cifra" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="etiqueta">Nombre</label>
+              <input required value={form.nombre} placeholder="Retención IR 2% (bienes y servicios)"
+                onChange={(e) => setForm({ ...form, nombre: e.target.value })} className="entrada" />
+            </div>
+            <div>
+              <label className="etiqueta">Tasa %</label>
+              <input required type="number" min="0.01" step="0.01" value={form.tasa}
+                onChange={(e) => setForm({ ...form, tasa: e.target.value })} className="entrada text-right cifra" />
+            </div>
+            <div>
+              <label className="etiqueta">Se calcula sobre</label>
+              <select value={form.base} onChange={(e) => setForm({ ...form, base: e.target.value as 'subtotal' | 'iva' | 'total' })} className="entrada">
+                <option value="subtotal">Subtotal (sin IVA)</option>
+                <option value="iva">IVA</option>
+                <option value="total">Total</option>
+              </select>
+            </div>
+            <div>
+              <label className="etiqueta">Aplica a</label>
+              <select disabled={form.editando !== null} value={form.aplica}
+                onChange={(e) => setForm({ ...form, aplica: e.target.value as 'compra' | 'venta' })} className="entrada">
+                <option value="compra">Compra (efectuada — a proveedores)</option>
+                <option value="venta">Venta (recibida — nos retienen)</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="etiqueta">Cuenta contable</label>
+              <select required value={form.cuenta_contable} onChange={(e) => setForm({ ...form, cuenta_contable: e.target.value })} className="entrada">
+                <option value="">— cuenta ({form.aplica === 'compra' ? 'pasivo: retención por pagar' : 'activo: anticipo IR'}) —</option>
+                {cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+              </select>
+            </div>
+            <label className="flex items-end gap-2 text-sm text-slate-600 pb-2">
+              <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
+              Activo
+            </label>
+          </div>
+        </PanelForm>
+      )}
+      <div className="tarjeta overflow-x-auto">
+        <table className="tabla">
+          <thead><tr><th>Código</th><th>Nombre</th><th className="text-right">Tasa</th><th>Sobre</th><th>Aplica</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {filas.length === 0 && <tr><td colSpan={8} className="py-12 text-center text-slate-400">Sin tipos de retención — creá los que use la empresa (IR 2%, IR 10%…)</td></tr>}
+            {filas.map((t) => (
+              <tr key={t.codigo}>
+                <td className="cifra font-medium">{t.codigo}</td>
+                <td className="font-medium">{t.nombre}</td>
+                <td className="text-right cifra">{(Number(t.tasa) * 100).toFixed(2)}%</td>
+                <td className="text-slate-500">{t.base}</td>
+                <td className="text-slate-500">{t.aplica === 'compra' ? 'efectuada' : 'recibida'}</td>
+                <td className="cifra text-slate-500">{t.cuenta_contable}</td>
+                <td><Estado activa={t.activo} /></td>
+                <td className="text-right">
+                  <button onClick={() => setForm({ editando: t.codigo, codigo: t.codigo, nombre: t.nombre, tasa: String(Number(t.tasa) * 100), base: t.base, cuenta_contable: t.cuenta_contable, aplica: t.aplica, activo: t.activo })}
+                    className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-slate-400">
+        SEVASA retiene a proveedores (efectuada = pasivo con la DGI). Como gran contribuyente está exento de que le
+        retengan, así que las de tipo "recibida" quedan disponibles pero normalmente no se usan.
+      </p>
     </div>
   );
 }

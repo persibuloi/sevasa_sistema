@@ -183,10 +183,36 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
        VALUES ($1, $2, 'recibo', $3, $4) RETURNING id`,
       [fecha, fecha.slice(0, 7), `Recibo ${numeroCompleto} — ${cliente.rows[0]?.nombre ?? ''} (${forma_pago})`, req.usuario!.id]
     );
+    // Retenciones sufridas (recibidas): debitan su cuenta (anticipo IR) y el
+    // efectivo entra por el NETO. Hoy SEVASA es exento, pero queda disponible.
+    const retEntrada = Array.isArray(req.body?.retenciones) ? req.body.retenciones : [];
+    const retenciones: Array<{ codigo: string; cuenta: string; base: number; monto: number }> = [];
+    let retencionCent = 0;
+    for (const r of retEntrada as Array<{ tipo_codigo: string; base: number }>) {
+      const rt = await bd.query(
+        `SELECT tasa, cuenta_contable FROM retencion_tipos WHERE codigo = $1 AND activo AND aplica = 'venta'`,
+        [r.tipo_codigo]
+      );
+      if (rt.rowCount === 0) return { error: 400, mensaje: `Retención "${r.tipo_codigo}" no existe o no aplica a ventas` };
+      const baseMonto = Number(r.base);
+      if (!Number.isFinite(baseMonto) || baseMonto <= 0) return { error: 400, mensaje: 'Base de retención inválida' };
+      const montoCent = Math.round(baseMonto * Number(rt.rows[0].tasa) * 100);
+      retencionCent += montoCent;
+      retenciones.push({ codigo: r.tipo_codigo, cuenta: rt.rows[0].cuenta_contable, base: baseMonto, monto: montoCent / 100 });
+    }
+    const efectivoCent = Math.round(total * 100) - retencionCent;
+    if (efectivoCent < 0) return { error: 400, mensaje: 'Las retenciones superan el total del recibo' };
+
     await bd.query(
       `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, documento_ref) VALUES ($1, $2, $3, 0, $4)`,
-      [asiento.rows[0].id, cfg.cuenta_caja, total, numeroCompleto]
+      [asiento.rows[0].id, cfg.cuenta_caja, efectivoCent / 100, numeroCompleto]
     );
+    for (const r of retenciones) {
+      await bd.query(
+        `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, documento_ref) VALUES ($1, $2, $3, 0, $4)`,
+        [asiento.rows[0].id, r.cuenta, r.monto, numeroCompleto]
+      );
+    }
     await bd.query(
       `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, tercero_id, documento_ref)
        VALUES ($1, $2, 0, $3, $4, $5)`,
@@ -210,6 +236,12 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
       await bd.query(
         `INSERT INTO recibo_aplicaciones (recibo_id, factura_id, monto) VALUES ($1, NULL, $2)`,
         [recibo.rows[0].id, aCuentaCent / 100]
+      );
+    }
+    for (const r of retenciones) {
+      await bd.query(
+        `INSERT INTO recibo_retenciones (recibo_id, tipo_codigo, base, monto) VALUES ($1, $2, $3, $4)`,
+        [recibo.rows[0].id, r.codigo, r.base, r.monto]
       );
     }
     await registrarBitacora(bd, req.usuario!.id, 'emitir_recibo', 'recibos', String(recibo.rows[0].id), {
