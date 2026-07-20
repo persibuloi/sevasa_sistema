@@ -36,7 +36,8 @@ function limpiarLineas(lineas: unknown): Array<LineaOC & { total: number }> | nu
 
 const SQL_LISTA = `
   SELECT o.*, t.nombre AS proveedor, b.nombre AS bodega_nombre,
-         (SELECT COALESCE(SUM(total), 0) FROM orden_compra_lineas WHERE orden_id = o.id) AS total
+         (SELECT COALESCE(SUM(total), 0) FROM orden_compra_lineas WHERE orden_id = o.id) AS total,
+         (SELECT p.id FROM polizas p WHERE p.estado <> 'anulada' AND o.id = ANY(p.ordenes_ids) LIMIT 1) AS en_poliza
   FROM ordenes_compra o
   JOIN terceros t ON t.id = o.tercero_id
   LEFT JOIN bodegas b ON b.codigo = o.bodega`;

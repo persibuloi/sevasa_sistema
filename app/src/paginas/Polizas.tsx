@@ -101,7 +101,8 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
       setBodegas(b.filter((x) => x.activa));
       setProductos(p.filter((x) => x.activo));
       setCuentas(c.filter((x) => x.es_detalle && x.activa));
-      setOrdenes(oc.filter((x) => x.estado === 'aprobada'));
+      // Solo aprobadas y que NO estén ya en otra póliza (borrador o liquidada)
+      setOrdenes(oc.filter((x) => x.estado === 'aprobada' && (!x.en_poliza || x.en_poliza === id)));
     }).catch(() => setAviso('❌ Error cargando catálogos'));
 
     if (id) {
@@ -143,6 +144,10 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
 
   async function jalarOC(oc: OrdenCompra) {
     setMostrarOC(false);
+    if (ordenesIds.includes(oc.id)) {
+      setAviso(`❌ La OC-${String(oc.id).padStart(4, '0')} ya fue jalada a esta póliza`);
+      return;
+    }
     try {
       const completa = await api.get<OrdenCompra>(`/ordenes/${oc.id}`);
       const nuevas: LineaF[] = (completa.lineas ?? [])
@@ -410,8 +415,12 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
               <table className="tabla">
                 <thead className="sticky top-0"><tr><th>Orden</th><th>Fecha</th><th>Proveedor</th><th className="text-right">Total C$</th><th></th></tr></thead>
                 <tbody>
-                  {ordenes.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-slate-400">No hay órdenes aprobadas</td></tr>}
-                  {ordenes.map((o) => (
+                  {ordenes.filter((o) => !ordenesIds.includes(o.id)).length === 0 && (
+                    <tr><td colSpan={5} className="py-10 text-center text-slate-400">
+                      No hay órdenes aprobadas disponibles (las ya jaladas no se repiten)
+                    </td></tr>
+                  )}
+                  {ordenes.filter((o) => !ordenesIds.includes(o.id)).map((o) => (
                     <tr key={o.id}>
                       <td className="cifra font-medium">OC-{String(o.id).padStart(4, '0')}</td>
                       <td>{o.fecha.slice(0, 10)}</td>

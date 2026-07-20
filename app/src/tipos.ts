@@ -222,6 +222,7 @@ export interface OrdenCompra {
   estado: 'borrador' | 'aprobada' | 'recibida' | 'anulada';
   notas: string | null;
   total?: string | number;
+  en_poliza?: number | null;
   lineas?: LineaOrdenCompra[];
 }
 
