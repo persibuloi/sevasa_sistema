@@ -32,34 +32,67 @@ function InsigniaEstado({ estado }: { estado: Factura['estado'] }) {
 
 function ListaFacturas({ alAbrir }: { alAbrir: (id: number | null) => void }) {
   const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [total, setTotal] = useState(0);
   const [filtro, setFiltro] = useState<string>('');
+  const [busqueda, setBusqueda] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [pagina, setPagina] = useState(1);
   const [error, setError] = useState('');
 
+  const POR_PAGINA = 50;
+  const totalPaginas = Math.max(Math.ceil(total / POR_PAGINA), 1);
+
   useEffect(() => {
-    api
-      .get<Factura[]>(`/facturas${filtro ? `?estado=${filtro}` : ''}`)
-      .then((f) => {
-        setFacturas(f);
-        setError('');
-      })
-      .catch((e) => setError(e instanceof ErrorApi ? e.message : 'Error cargando facturas'));
-  }, [filtro]);
+    setPagina(1);
+  }, [filtro, busqueda, desde, hasta]);
+
+  useEffect(() => {
+    const temporizador = setTimeout(() => {
+      const parametros = new URLSearchParams();
+      if (filtro) parametros.set('estado', filtro);
+      if (busqueda.trim()) parametros.set('q', busqueda.trim());
+      if (desde) parametros.set('desde', desde);
+      if (hasta) parametros.set('hasta', hasta);
+      parametros.set('pagina', String(pagina));
+      parametros.set('por_pagina', String(POR_PAGINA));
+      api
+        .get<{ facturas: Factura[]; total: number }>(`/facturas?${parametros.toString()}`)
+        .then((d) => {
+          setFacturas(d.facturas);
+          setTotal(d.total);
+          setError('');
+        })
+        .catch((e) => setError(e instanceof ErrorApi ? e.message : 'Error cargando facturas'));
+    }, busqueda ? 300 : 0);  // debounce solo al escribir
+    return () => clearTimeout(temporizador);
+  }, [filtro, busqueda, desde, hasta, pagina]);
 
   return (
     <div>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <div className="flex gap-1 bg-white border border-borde rounded-xl p-1">
-          {FILTROS.map((f) => (
-            <button
-              key={f.clave}
-              onClick={() => setFiltro(f.clave)}
-              className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
-                filtro === f.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
-              }`}
-            >
-              {f.titulo}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 bg-white border border-borde rounded-xl p-1">
+            {FILTROS.map((f) => (
+              <button
+                key={f.clave}
+                onClick={() => setFiltro(f.clave)}
+                className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition ${
+                  filtro === f.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
+                }`}
+              >
+                {f.titulo}
+              </button>
+            ))}
+          </div>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar Nº o cliente…"
+            className="entrada max-w-48"
+          />
+          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="entrada max-w-36" title="Desde" />
+          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="entrada max-w-36" title="Hasta" />
         </div>
         <button onClick={() => alAbrir(null)} className="boton-primario">
           + Nueva factura
@@ -104,6 +137,29 @@ function ListaFacturas({ alAbrir }: { alAbrir: (id: number | null) => void }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 text-sm text-slate-500">
+        <span>{total} factura{total === 1 ? '' : 's'}</span>
+        {totalPaginas > 1 && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPagina(Math.max(pagina - 1, 1))}
+              disabled={pagina <= 1}
+              className="boton-suave px-3 py-1 disabled:opacity-40"
+            >
+              ← Anterior
+            </button>
+            <span className="cifra">página {pagina} de {totalPaginas}</span>
+            <button
+              onClick={() => setPagina(Math.min(pagina + 1, totalPaginas))}
+              disabled={pagina >= totalPaginas}
+              className="boton-suave px-3 py-1 disabled:opacity-40"
+            >
+              Siguiente →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

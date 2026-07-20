@@ -103,6 +103,16 @@ facturador, comprador, consulta.
   IVA correcto, período cerrado rechaza escritura. Corren antes de cada push.
 - Fases chicas probadas E2E con datos reales antes de avanzar (método Sevasa).
 
+## Capacidad y concurrencia
+
+- Consecutivos PROBADOS bajo carga: `npm run prueba:carga` — 20 clientes × 25
+  emisiones contra una serie: 0 duplicados, 0 huecos, último número exacto.
+- Pool pg: max 10 (PG_POOL_MAX), idle 30s, connect timeout 10s — el pooler de
+  Supabase multiplexa por transacción.
+- Listados de volumen con paginación servidor: facturas (q + fechas + pagina/
+  por_pagina, respuesta {facturas, total}). Replicar el patrón en compras/
+  recibos cuando crezcan.
+
 ## Comandos
 
 ```

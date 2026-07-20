@@ -454,7 +454,9 @@ function FormNota({ alEmitir }: { alEmitir: (mensaje: string) => void }) {
   const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
-    api.get<Factura[]>('/facturas?estado=emitida').then(setFacturas).catch(() => undefined);
+    api.get<{ facturas: Factura[] }>('/facturas?estado=emitida&por_pagina=200')
+      .then((d) => setFacturas(d.facturas))
+      .catch(() => undefined);
     api.get<Array<{ clave: string; valor: string }>>('/config')
       .then((cfg) => {
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');

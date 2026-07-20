@@ -70,17 +70,35 @@ const SQL_LISTA = `
   LEFT JOIN sucursales su ON su.codigo = s.sucursal
   LEFT JOIN vendedores v  ON v.id = f.vendedor_id`;
 
+// Listado con búsqueda, rango de fechas y paginación (volumen: 4 sucursales,
+// 20 vendedores → miles de documentos al mes)
 rutasFacturas.get('/', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
   const estado = typeof req.query.estado === 'string' && ['borrador', 'emitida', 'anulada'].includes(req.query.estado)
     ? req.query.estado
     : null;
-  const r = await pool.query(
-    `${SQL_LISTA}
-     WHERE $1::text IS NULL OR f.estado = $1
-     ORDER BY f.id DESC LIMIT 300`,
-    [estado]
+  const q = typeof req.query.q === 'string' && req.query.q.trim() !== '' ? `%${req.query.q.trim()}%` : null;
+  const esFecha = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const desde = esFecha(req.query.desde) ? req.query.desde : null;
+  const hasta = esFecha(req.query.hasta) ? req.query.hasta : null;
+  const porPagina = Math.min(Math.max(Number(req.query.por_pagina ?? 50) || 50, 1), 200);
+  const pagina = Math.max(Number(req.query.pagina ?? 1) || 1, 1);
+
+  const filtros = `
+    WHERE ($1::text IS NULL OR f.estado = $1)
+      AND ($2::text IS NULL OR f.numero_completo ILIKE $2 OR t.nombre ILIKE $2)
+      AND ($3::date IS NULL OR f.fecha >= $3)
+      AND ($4::date IS NULL OR f.fecha <= $4)`;
+  const parametros = [estado, q, desde, hasta];
+
+  const total = await pool.query(
+    `SELECT count(*)::int AS n FROM facturas f LEFT JOIN terceros t ON t.id = f.tercero_id ${filtros}`,
+    parametros
   );
-  res.json(r.rows);
+  const r = await pool.query(
+    `${SQL_LISTA} ${filtros} ORDER BY f.id DESC LIMIT $5 OFFSET $6`,
+    [...parametros, porPagina, (pagina - 1) * porPagina]
+  );
+  res.json({ facturas: r.rows, total: total.rows[0].n, pagina, por_pagina: porPagina });
 }));
 
 rutasFacturas.get('/:id', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
