@@ -10,8 +10,14 @@ export interface MovimientoInv {
   bodega: string;
   cantidad: number;        // siempre positiva; el signo lo pone la operación
   usuarioId: string;
-  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste';
+  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste' | 'nota_credito';
   origenId: number;
+}
+
+function tipoEntrada(origenTipo: MovimientoInv['origenTipo']): string {
+  if (origenTipo === 'poliza') return 'entrada_poliza';
+  if (origenTipo === 'nota_credito') return 'devolucion';
+  return 'entrada_compra';
 }
 
 async function bloquearProducto(bd: PoolClient, productoId: number): Promise<{ promedio: number; existencia: number }> {
@@ -54,7 +60,7 @@ export async function entradaInventario(bd: PoolClient, m: MovimientoInv, costoU
   const nuevoPromedio = (base * promedio + m.cantidad * costoUnitario) / (base + m.cantidad);
   await bd.query('UPDATE productos SET costo_promedio = $2 WHERE id = $1', [m.productoId, nuevoPromedio.toFixed(4)]);
   await moverExistencia(bd, m.productoId, m.bodega, m.cantidad);
-  await kardex(bd, m, m.origenTipo === 'poliza' ? 'entrada_poliza' : 'entrada_compra', m.cantidad, costoUnitario);
+  await kardex(bd, m, tipoEntrada(m.origenTipo), m.cantidad, costoUnitario);
 }
 
 /** Salida por venta: usa el promedio vigente (no lo cambia). Devuelve el costo unitario aplicado. */

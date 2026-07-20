@@ -210,6 +210,59 @@ export interface Factura {
   lineas?: LineaFactura[];
 }
 
+export interface FacturaPendiente {
+  id: number;
+  numero_completo: string;
+  fecha: string;
+  total: string | number;
+  tercero_id: number;
+  cliente: string;
+  terminos_dias: number;
+  cobrado: string | number;
+  acreditado: string | number;
+  saldo: string | number;
+  vence?: string;
+  dias_vencida?: number;
+  bucket?: string;
+}
+
+export interface ResumenCartera {
+  corriente: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90_mas: number;
+  total: number;
+}
+
+export interface Recibo {
+  id: number;
+  numero_completo: string;
+  fecha: string;
+  tercero_id: number;
+  cliente?: string;
+  forma_pago: string;
+  referencia: string | null;
+  total: string | number;
+  estado: 'emitido' | 'anulado';
+  notas: string | null;
+}
+
+export interface NotaCredito {
+  id: number;
+  numero_completo: string;
+  fecha: string;
+  factura_id: number;
+  factura?: string;
+  cliente?: string;
+  tipo: 'devolucion' | 'rebaja';
+  motivo: string;
+  subtotal: string | number;
+  iva: string | number;
+  total: string | number;
+  estado: 'emitida' | 'anulada';
+}
+
 export interface RespuestaMayor {
   cuenta: { codigo: string; nombre: string };
   desde: string | null;

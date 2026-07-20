@@ -102,10 +102,18 @@ cd app && npm run build
   asiento de la venta (anulación revierte todo junto); la bodega sale de la
   sucursal de la serie. Pantalla Compras con pestañas (compras/órdenes/
   proveedores); Productos muestra existencia y costo promedio.
-- F2 pendiente: recibos de cobro, notas de crédito, antigüedad de cartera,
-  facturas manuales (talonarios), impresión/formato DGI, restyle de pantallas F1
-  al sistema de diseño nuevo. Luego F5: pólizas de importación (entrada_poliza
-  ya prevista en el kardex).
+- CxC ✅ (migración 008): series por tipo de documento (series.documento:
+  factura/recibo/nota_credito; series REC y NC por defecto, claves en config).
+  Recibos de cobro: emisión directa (número row-lock + asiento Caja vs CxC),
+  aplicaciones a facturas con validación de saldo + cobro «a cuenta»; anulación
+  por contra-asiento. Notas de crédito sobre factura emitida: devolución
+  (reingresa inventario al costo de salida, kardex tipo 'devolucion', valida
+  cantidades acumuladas) o rebaja (sin IVA + IVA calculado); tope = saldo de la
+  factura (crédito). Cartera: /api/cxc/cartera con buckets de antigüedad según
+  terminos_dias del tercero. Pantalla Cobranza (cartera/recibos/notas).
+- F2 pendiente: facturas manuales (talonarios), impresión/formato DGI, restyle
+  de pantallas F1 al diseño nuevo. Luego F5: pólizas de importación
+  (entrada_poliza ya prevista en el kardex) y F3/F4: bancos y pagos a CxP.
 - Datos de prueba del sistema viejo: se cargan en `datos-prueba/` (raíz del repo,
   EXCLUIDA de git — datos reales de la empresa no van al historial).
 - Saldos iniciales: carga simplificada por saldos globales por tercero (ver plan §F1).
