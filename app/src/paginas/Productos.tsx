@@ -162,6 +162,8 @@ export default function Productos() {
               <th>Producto</th>
               <th>Categoría</th>
               <th>Unidad</th>
+              <th className="text-right">Existencia</th>
+              <th className="text-right">Costo prom. C$</th>
               <th className="text-right">Precio C$</th>
               <th>Estado</th>
               <th></th>
@@ -170,7 +172,7 @@ export default function Productos() {
           <tbody>
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-14 text-center text-slate-400">
+                <td colSpan={9} className="py-14 text-center text-slate-400">
                   {busqueda ? 'Sin resultados' : 'Sin productos — creá el primero'}
                 </td>
               </tr>
@@ -181,6 +183,10 @@ export default function Productos() {
                 <td className="font-medium">{p.nombre}</td>
                 <td className="text-slate-500">{p.categoria ?? '—'}</td>
                 <td className="text-slate-500">{p.unidad}</td>
+                <td className={`text-right cifra ${Number(p.existencia ?? 0) < 0 ? 'text-rojo font-semibold' : ''}`}>
+                  {Number(p.existencia ?? 0)}
+                </td>
+                <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>
                 <td className="text-right cifra font-medium">{montoSiempre(p.precio_venta)}</td>
                 <td>
                   {p.activo ? <span className="insignia-verde">activo</span> : <span className="insignia-gris">inactivo</span>}

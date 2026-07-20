@@ -141,6 +141,14 @@ talonarios (id, serie_manual, rango_desde, rango_hasta, sucursal, estado)
    sin justificar (para que contabilidad persiga el papel no grabado).
 5. Contablemente idénticas a las de sistema (mismo asiento automático), marcadas origen='manual'.
 
+**Inventario (DECIDIDO durante F2):** el inventario vive DENTRO del sistema, perpetuo,
+con **costo promedio ponderado**. El ciclo completo es: orden de compra → compra local
+(CxP) o póliza de importación (F5) → entrada a inventario con costo → la factura descarga
+inventario y genera el asiento de costo de venta automáticamente (en el mismo asiento de
+la venta, para que la anulación revierta todo junto). La OC es documento de control, sin
+efecto contable. Kardex por producto/bodega como fuente de verdad; existencias y costo
+promedio materializados y actualizados en la misma transacción.
+
 ### F3 — Bancos y cheques (≈2-3 semanas)
 Cuentas bancarias, emisión/impresión de cheques (formato de cada banco), transferencias, depósitos,
 conciliación bancaria (importar estado de cuenta → matching), flotante de cheques no cobrados.

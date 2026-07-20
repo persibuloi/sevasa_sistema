@@ -5,6 +5,7 @@ import { envolver, aCentavos } from '../util';
 import { requierePermiso } from '../auth';
 import { registrarBitacora } from '../bitacora';
 import { leerConfig } from '../config';
+import { salidaInventario, revertirSalida } from '../inventario';
 
 export const rutasFacturas = Router();
 
@@ -203,6 +204,27 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
     const nLineas = await bd.query('SELECT count(*)::int AS n FROM factura_lineas WHERE factura_id = $1', [id]);
     if ((nLineas.rows[0]?.n ?? 0) === 0) return { error: 400, mensaje: 'La factura no tiene líneas' };
 
+    // Bodega de la sucursal (para descargar inventario) — se valida ANTES de escribir nada
+    const lineasProducto = await bd.query(
+      'SELECT producto_id, cantidad FROM factura_lineas WHERE factura_id = $1 AND producto_id IS NOT NULL',
+      [id]
+    );
+    let bodega: string | null = null;
+    if ((lineasProducto.rowCount ?? 0) > 0) {
+      const b = await bd.query(
+        `SELECT b.codigo FROM bodegas b JOIN series s ON s.sucursal = b.sucursal
+         WHERE s.serie = $1 AND b.activa ORDER BY b.codigo LIMIT 1`,
+        [factura.serie]
+      );
+      if (b.rowCount === 0) {
+        return {
+          error: 400,
+          mensaje: `La sucursal de la serie ${factura.serie} no tiene bodega activa — creala en Configuración → Bodegas`,
+        };
+      }
+      bodega = b.rows[0].codigo;
+    }
+
     const cliente = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [factura.tercero_id]);
 
     // Consecutivo: el row-lock serializa la entrega de números (plan §F2)
@@ -215,7 +237,10 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
     const numero: number = serie.rows[0].ultimo_numero;
     const numeroCompleto = `${serie.rows[0].prefijo}${String(numero).padStart(6, '0')}`;
 
-    const cfg = await leerConfig(bd, ['cuenta_caja', 'cuenta_cxc', 'cuenta_ventas', 'cuenta_iva']);
+    const cfg = await leerConfig(bd, [
+      'cuenta_caja', 'cuenta_cxc', 'cuenta_ventas', 'cuenta_iva',
+      'cuenta_costo_ventas', 'cuenta_inventario',
+    ]);
 
     const asiento = await bd.query(
       `INSERT INTO asientos (fecha, ano_mes, tipo_origen, origen_id, concepto, creado_por)
@@ -243,6 +268,36 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
          VALUES ($1, $2, 0, $3, $4)`,
         [asientoId, cfg.cuenta_iva, factura.iva, numeroCompleto]
       );
+    }
+
+    // Costo de venta + descarga de inventario (mismo asiento: la anulación revierte todo junto)
+    if (bodega) {
+      let costoCent = 0;
+      for (const l of lineasProducto.rows) {
+        const costoUnitario = await salidaInventario(bd, {
+          fecha: fechaFactura,
+          productoId: l.producto_id,
+          bodega,
+          cantidad: Number(l.cantidad),
+          usuarioId: req.usuario!.id,
+          origenTipo: 'factura',
+          origenId: id,
+        });
+        costoCent += Math.round(Number(l.cantidad) * costoUnitario * 100);
+      }
+      if (costoCent > 0) {
+        const costoTotal = costoCent / 100;
+        await bd.query(
+          `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, documento_ref)
+           VALUES ($1, $2, $3, 0, $4)`,
+          [asientoId, cfg.cuenta_costo_ventas, costoTotal, numeroCompleto]
+        );
+        await bd.query(
+          `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, documento_ref)
+           VALUES ($1, $2, 0, $3, $4)`,
+          [asientoId, cfg.cuenta_inventario, costoTotal, numeroCompleto]
+        );
+      }
     }
 
     const emitida = await bd.query(
@@ -305,6 +360,22 @@ rutasFacturas.post('/:id/anular', requierePermiso('facturacion', 'anular'), envo
       factura.asiento_id,
       contra.rows[0].id,
     ]);
+
+    // Reingreso al inventario de lo que la factura descargó
+    const salidas = await bd.query(
+      `SELECT * FROM movimientos_inventario
+       WHERE origen_tipo = 'factura' AND origen_id = $1 AND tipo = 'salida_venta'`,
+      [id]
+    );
+    for (const k of salidas.rows) {
+      await revertirSalida(
+        bd,
+        { fecha: hoy, productoId: k.producto_id, bodega: k.bodega, cantidad: Math.abs(Number(k.cantidad)),
+          usuarioId: req.usuario!.id, origenTipo: 'factura', origenId: id },
+        Number(k.costo_unitario)
+      );
+    }
+
     const anulada = await bd.query(
       `UPDATE facturas SET estado = 'anulada', actualizado_por = $2, actualizado_en = now()
        WHERE id = $1 RETURNING *`,

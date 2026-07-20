@@ -90,22 +90,9 @@ cd app && npm run build
   llevan vendedor opcional. Pantalla Administración → Configuración con pestañas
   (sucursales/bodegas/vendedores/series/parámetros). CRUD de config = permiso
   admin/editar, todo a bitácora.
-- Inventario + compras ✅ (migración 007, DECISIÓN: inventario perpetuo DENTRO
-  del sistema, costo promedio ponderado global): kardex (movimientos_inventario,
-  fuente de verdad) + existencias materializadas + productos.costo_promedio.
-  Motor en `backend/src/inventario.ts` (entrada/salida/reversas, SIEMPRE dentro
-  de transacción con lock del producto). Compras locales: borrador → registrar
-  (asiento Inventario + IVA acreditable vs CxP/Caja + kardex + promedio) →
-  anular (contra-asiento + reversa kardex). OC = documento de control sin
-  contabilidad (borrador→aprobada→recibida al registrar compra ligada).
-  EMITIR factura ahora descarga inventario y mete costo de venta EN EL MISMO
-  asiento de la venta (anulación revierte todo junto); la bodega sale de la
-  sucursal de la serie. Pantalla Compras con pestañas (compras/órdenes/
-  proveedores); Productos muestra existencia y costo promedio.
 - F2 pendiente: recibos de cobro, notas de crédito, antigüedad de cartera,
   facturas manuales (talonarios), impresión/formato DGI, restyle de pantallas F1
-  al sistema de diseño nuevo. Luego F5: pólizas de importación (entrada_poliza
-  ya prevista en el kardex).
+  al sistema de diseño nuevo.
 - Datos de prueba del sistema viejo: se cargan en `datos-prueba/` (raíz del repo,
   EXCLUIDA de git — datos reales de la empresa no van al historial).
 - Saldos iniciales: carga simplificada por saldos globales por tercero (ver plan §F1).

@@ -7,7 +7,25 @@ import { registrarBitacora } from '../bitacora';
 export const rutasProductos = Router();
 
 rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (_req, res) => {
-  const r = await pool.query('SELECT * FROM productos ORDER BY codigo');
+  const r = await pool.query(
+    `SELECT p.*, COALESCE(e.existencia, 0) AS existencia
+     FROM productos p
+     LEFT JOIN (
+       SELECT producto_id, SUM(cantidad) AS existencia FROM existencias GROUP BY producto_id
+     ) e ON e.producto_id = p.id
+     ORDER BY p.codigo`
+  );
+  res.json(r.rows);
+}));
+
+// Kardex de un producto (últimos 200 movimientos)
+rutasProductos.get('/:id/kardex', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
+  const r = await pool.query(
+    `SELECT m.*, b.nombre AS bodega_nombre
+     FROM movimientos_inventario m LEFT JOIN bodegas b ON b.codigo = m.bodega
+     WHERE m.producto_id = $1 ORDER BY m.id DESC LIMIT 200`,
+    [req.params.id]
+  );
   res.json(r.rows);
 }));
 

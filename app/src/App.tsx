@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 import Facturas from './paginas/Facturas';
 import Clientes from './paginas/Clientes';
 import Productos from './paginas/Productos';
+import Compras from './paginas/Compras';
 import Configuracion from './paginas/Configuracion';
 import Catalogo from './paginas/Catalogo';
 import Asientos from './paginas/Asientos';
@@ -164,6 +165,12 @@ const GRUPOS = [
     ],
   },
   {
+    titulo: 'Compras',
+    items: [
+      { clave: 'compras', titulo: 'Compras', trazos: ['M6 6h15l-1.5 9H7.5z', 'M6 6L5 2H2', 'M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'] },
+    ],
+  },
+  {
     titulo: 'Contabilidad',
     items: [
       { clave: 'balanza', titulo: 'Balanza', trazos: ['M12 3v18', 'M8 21h8', 'M4 7h16', 'M6 7l-2.5 6a3 3 0 0 0 5 0L6 7', 'M18 7l-2.5 6a3 3 0 0 0 5 0L18 7'] },
@@ -187,6 +194,7 @@ const TITULOS: Record<Pagina, string> = {
   facturas: 'Facturación',
   clientes: 'Clientes',
   productos: 'Productos',
+  compras: 'Compras',
   balanza: 'Balanza de comprobación',
   asientos: 'Asientos contables',
   mayor: 'Libro mayor',
@@ -263,6 +271,7 @@ function Sistema({ sesion }: { sesion: Session }) {
           {pagina === 'facturas' && <Facturas />}
           {pagina === 'clientes' && <Clientes />}
           {pagina === 'productos' && <Productos />}
+          {pagina === 'compras' && <Compras />}
           {pagina === 'balanza' && <Balanza />}
           {pagina === 'asientos' && <Asientos />}
           {pagina === 'mayor' && <Mayor />}

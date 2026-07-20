@@ -122,7 +122,61 @@ export interface Producto {
   unidad: string;
   categoria: string | null;
   precio_venta: string | number;
+  costo_promedio?: string | number;
+  existencia?: string | number;
   activo: boolean;
+}
+
+export interface LineaCompra {
+  id?: number;
+  producto_id: number;
+  producto_codigo?: string;
+  producto_nombre?: string;
+  cantidad: string | number;
+  costo_unitario: string | number;
+  total?: string | number;
+}
+
+export interface Compra {
+  id: number;
+  orden_compra_id: number | null;
+  tercero_id: number;
+  proveedor?: string;
+  numero_documento: string;
+  fecha: string;
+  tipo_pago: 'contado' | 'credito';
+  bodega: string;
+  bodega_nombre?: string;
+  estado: 'borrador' | 'registrada' | 'anulada';
+  subtotal: string | number;
+  iva: string | number;
+  total: string | number;
+  notas: string | null;
+  asiento_id: number | null;
+  lineas?: LineaCompra[];
+}
+
+export interface LineaOrdenCompra {
+  id?: number;
+  producto_id: number | null;
+  producto_codigo?: string | null;
+  descripcion: string;
+  cantidad: string | number;
+  costo_unitario: string | number;
+  total?: string | number;
+}
+
+export interface OrdenCompra {
+  id: number;
+  tercero_id: number;
+  proveedor?: string;
+  fecha: string;
+  bodega: string | null;
+  bodega_nombre?: string | null;
+  estado: 'borrador' | 'aprobada' | 'recibida' | 'anulada';
+  notas: string | null;
+  total?: string | number;
+  lineas?: LineaOrdenCompra[];
 }
 
 export interface LineaFactura {
