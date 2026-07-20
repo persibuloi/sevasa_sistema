@@ -137,6 +137,7 @@ export interface Producto {
   precio_venta: string | number;
   costo_promedio?: string | number;
   existencia?: string | number;
+  existencia_bodega?: string | number;
   activo: boolean;
 }
 

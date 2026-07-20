@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Cliente, Factura, Producto, Serie, Vendedor } from '../tipos';
+import type { Bodega, Cliente, Factura, Producto, Serie, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
 
 type Vista = { modo: 'lista' } | { modo: 'editor'; id: number | null };
@@ -126,6 +126,8 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [series, setSeries] = useState<Serie[]>([]);
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [bodegas, setBodegas] = useState<Bodega[]>([]);
+  const [filtrarPorBodega, setFiltrarPorBodega] = useState(true);
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -151,22 +153,51 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     [vendedores, serieElegida]
   );
 
+  // Bodega de la venta: la primera activa de la sucursal de la serie (misma regla del backend)
+  const bodegaVenta = useMemo(() => {
+    if (!serieElegida?.sucursal) return null;
+    return (
+      bodegas
+        .filter((b) => b.sucursal === serieElegida.sucursal)
+        .sort((a, b) => a.codigo.localeCompare(b.codigo))[0] ?? null
+    );
+  }, [bodegas, serieElegida]);
+
+  // Productos con la existencia de ESA bodega
+  useEffect(() => {
+    api
+      .get<Producto[]>(`/productos${bodegaVenta ? `?bodega=${encodeURIComponent(bodegaVenta.codigo)}` : ''}`)
+      .then((p) => setProductos(p.filter((x) => x.activo)))
+      .catch(() => undefined);
+  }, [bodegaVenta]);
+
+  // Parametrizable: la tienda solo ve los productos de SU bodega (con existencia)
+  const productosVisibles = useMemo(() => {
+    if (!filtrarPorBodega || !bodegaVenta) return productos;
+    const enLineas = new Set(lineas.map((l) => l.productoId).filter(Boolean));
+    return productos.filter(
+      (p) => Number(p.existencia_bodega ?? 0) > 0 || enLineas.has(String(p.id))
+    );
+  }, [productos, filtrarPorBodega, bodegaVenta, lineas]);
+
   useEffect(() => {
     Promise.all([
       api.get<Cliente[]>('/clientes'),
       api.get<Serie[]>('/series'),
       api.get<Array<{ clave: string; valor: string }>>('/config'),
       api.get<Vendedor[]>('/configuracion/vendedores'),
-      api.get<Producto[]>('/productos'),
+      api.get<Bodega[]>('/configuracion/bodegas'),
     ])
-      .then(([c, s, cfg, v, p]) => {
+      .then(([c, s, cfg, v, b]) => {
         setClientes(c.filter((x) => x.activo));
         const deFactura = s.filter((x) => x.activa && x.documento === 'factura');
         setSeries(deFactura);
         setVendedores(v.filter((x) => x.activo));
-        setProductos(p.filter((x) => x.activo));
+        setBodegas(b.filter((x) => x.activa));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
+        const filtro = cfg.find((x) => x.clave === 'ventas_filtrar_por_bodega');
+        setFiltrarPorBodega((filtro?.valor ?? 'si') === 'si');
         if (!id) setSerie(deFactura.find((x) => x.tipo === 'sistema')?.serie ?? deFactura[0]?.serie ?? '');
       })
       .catch(() => setAviso('❌ Error cargando catálogos'));
@@ -431,7 +462,14 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           </div>
 
           {/* Líneas */}
-          <label className="etiqueta">Detalle</label>
+          <div className="flex items-center justify-between">
+            <label className="etiqueta">Detalle</label>
+            {filtrarPorBodega && bodegaVenta && (
+              <span className="text-[11px] text-slate-400 mb-1.5">
+                Mostrando productos con existencia en {bodegaVenta.nombre}
+              </span>
+            )}
+          </div>
           <table className="w-full text-sm mb-2">
             <thead>
               <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 text-left">
@@ -472,8 +510,11 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                         className="entrada"
                       >
                         <option value="">— libre —</option>
-                        {productos.map((p) => (
-                          <option key={p.id} value={p.id}>{p.codigo} · {p.nombre}</option>
+                        {productosVisibles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.codigo} · {p.nombre}
+                            {filtrarPorBodega && bodegaVenta ? ` · ${Number(p.existencia_bodega ?? 0)}` : ''}
+                          </option>
                         ))}
                       </select>
                     </td>

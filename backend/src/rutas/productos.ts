@@ -6,14 +6,20 @@ import { registrarBitacora } from '../bitacora';
 
 export const rutasProductos = Router();
 
-rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (_req, res) => {
+rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
+  // ?bodega=BOD-CEN agrega la existencia de ESA bodega (para el filtro por tienda)
+  const bodega = typeof req.query.bodega === 'string' && req.query.bodega !== '' ? req.query.bodega : null;
   const r = await pool.query(
-    `SELECT p.*, COALESCE(e.existencia, 0) AS existencia
+    `SELECT p.*,
+            COALESCE(e.existencia, 0) AS existencia,
+            COALESCE(eb.cantidad, 0)  AS existencia_bodega
      FROM productos p
      LEFT JOIN (
        SELECT producto_id, SUM(cantidad) AS existencia FROM existencias GROUP BY producto_id
      ) e ON e.producto_id = p.id
-     ORDER BY p.codigo`
+     LEFT JOIN existencias eb ON eb.producto_id = p.id AND eb.bodega = $1
+     ORDER BY p.codigo`,
+    [bodega]
   );
   res.json(r.rows);
 }));
