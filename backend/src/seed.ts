@@ -193,6 +193,13 @@ async function sembrar(): Promise<void> {
       ON CONFLICT (codigo) DO NOTHING`);
     console.log('✅ 8 productos de prueba');
 
+    // Cuentas bancarias ligadas a las cuentas contables del catálogo de prueba
+    await bd.query(`
+      INSERT INTO cuentas_bancarias (banco, nombre, numero, moneda, cuenta_contable) VALUES
+        ('BAC',    'Operativa córdobas', '360-123456-7', 'NIO', '1-01-02-01'),
+        ('Lafise', 'Operativa dólares',  '110-987654-3', 'USD', '1-01-02-02')`);
+    console.log('✅ 2 cuentas bancarias');
+
     // Junio queda cerrado para demostrar el candado de período
     await bd.query(`UPDATE periodos SET estado = 'cerrado', cerrado_en = now() WHERE ano_mes = '2026-06'`);
     console.log('🔒 Período 2026-06 cerrado (probá tocarlo: la BD lo rechaza)');
