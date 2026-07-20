@@ -7,19 +7,21 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Pool } from 'pg';
 import { pool } from './db';
 
 const CARPETA = path.resolve(__dirname, '..', '..', 'migrations');
 
-async function migrar(): Promise<void> {
-  await pool.query(`
+export async function aplicarMigraciones(bd: Pool, silencioso = false): Promise<void> {
+  const log = (m: string) => { if (!silencioso) console.log(m); };
+  await bd.query(`
     CREATE TABLE IF NOT EXISTS _migraciones (
       nombre      text PRIMARY KEY,
       aplicada_en timestamptz NOT NULL DEFAULT now()
     )`);
 
   const aplicadas = new Set(
-    (await pool.query('SELECT nombre FROM _migraciones')).rows.map((r) => r.nombre as string)
+    (await bd.query('SELECT nombre FROM _migraciones')).rows.map((r) => r.nombre as string)
   );
 
   const archivos = fs
@@ -31,13 +33,13 @@ async function migrar(): Promise<void> {
   for (const archivo of archivos) {
     if (aplicadas.has(archivo)) continue;
     const sql = fs.readFileSync(path.join(CARPETA, archivo), 'utf8');
-    const cliente = await pool.connect();
+    const cliente = await bd.connect();
     try {
       await cliente.query('BEGIN');
       await cliente.query(sql);
       await cliente.query('INSERT INTO _migraciones (nombre) VALUES ($1)', [archivo]);
       await cliente.query('COMMIT');
-      console.log(`✅ ${archivo}`);
+      log(`✅ ${archivo}`);
       nuevas++;
     } catch (err) {
       await cliente.query('ROLLBACK');
@@ -47,13 +49,15 @@ async function migrar(): Promise<void> {
       cliente.release();
     }
   }
-  console.log(nuevas === 0 ? '✨ Base al día — nada que aplicar' : `✨ ${nuevas} migración(es) aplicada(s)`);
+  log(nuevas === 0 ? '✨ Base al día — nada que aplicar' : `✨ ${nuevas} migración(es) aplicada(s)`);
 }
 
-migrar()
-  .then(() => pool.end())
-  .catch((err) => {
-    console.error(err);
-    process.exitCode = 1;
-    return pool.end();
-  });
+if (require.main === module) {
+  aplicarMigraciones(pool)
+    .then(() => pool.end())
+    .catch((err) => {
+      console.error(err);
+      process.exitCode = 1;
+      return pool.end();
+    });
+}

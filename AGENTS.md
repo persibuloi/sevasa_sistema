@@ -129,8 +129,16 @@ facturador, comprador, consulta.
   rate limit por IP (RATE_LIMIT/min, default 300); cabeceras nosniff/DENY/
   no-referrer; json limit 1mb; timeout 10s validando tokens; PG_POOL_MAX
   validado (1-50). Bundle dividido (vendor chunk).
-- Pendiente de la auditoría: tests contables automatizados (Jest) y columnas
-  de auditoría en tablas menores.
+- Suite contable automatizada: `npm test` (Vitest + supertest) — corre contra
+  un ESQUEMA TEMPORAL en el mismo Supabase (pruebas_<ts>): aplica las 15
+  migraciones desde cero (prueba de reproducibilidad), ejecuta el ciclo
+  completo por API (compra→promedio→factura con IVA/costo→sobrecobros
+  rechazados→devoluciones→cheque→anulación espejo), verifica triggers por SQL
+  directo (cuadre, período cerrado, inmutabilidad, no-DELETE) y el perímetro
+  RLS vía REST (401). Destruye el esquema al final — la base real no se toca.
+  El bypass de auth de la suite SOLO se activa con ESQUEMA_PRUEBAS definido y
+  nunca en producción (auth.ts). CORRE ANTES DE CADA PUSH.
+- Pendiente de la auditoría: columnas de auditoría en tablas menores.
 
 ## Capacidad y concurrencia
 
@@ -149,6 +157,7 @@ cd backend && npm run dev        # backend en :3001
 cd backend && npm run migrate    # aplicar migraciones pendientes
 cd backend && npm run seed       # datos de prueba (solo con la base vacía)
 cd backend && npm run typecheck
+cd backend && npm test             # suite contable contra esquema temporal (~30s)
 cd app && npm run dev            # frontend en :5173 (proxy /api → :3001)
 cd app && npm run build          # typecheck + build
 ```
