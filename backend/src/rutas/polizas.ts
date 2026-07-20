@@ -18,7 +18,7 @@ async function periodoAbierto(anoMes: string): Promise<string | null> {
   return null;
 }
 
-interface LineaEntrada { producto_id: number; cantidad: number; fob_unitario: number; peso?: number }
+interface LineaEntrada { producto_id: number; cantidad: number; fob_unitario: number; peso?: number; tercero_id?: number | null }
 interface GastoEntrada { concepto: string; monto: number; base?: string; es_iva?: boolean; cuenta_contable: string }
 
 function limpiar(lineas: unknown, gastos: unknown):
@@ -30,7 +30,7 @@ function limpiar(lineas: unknown, gastos: unknown):
     const cantidad = Number(l.cantidad);
     const fob = Number(l.fob_unitario);
     if (!l.producto_id || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(fob) || fob < 0) return null;
-    ls.push({ producto_id: l.producto_id, cantidad, fob_unitario: fob, peso: Number(l.peso ?? 0) || 0 });
+    ls.push({ producto_id: l.producto_id, cantidad, fob_unitario: fob, peso: Number(l.peso ?? 0) || 0, tercero_id: l.tercero_id ? Number(l.tercero_id) : null });
   }
   const gs: Required<GastoEntrada>[] = [];
   for (const g of (Array.isArray(gastos) ? gastos : []) as GastoEntrada[]) {
@@ -66,8 +66,10 @@ rutasPolizas.get('/:id', requierePermiso('polizas', 'ver'), envolver(async (req,
     return;
   }
   const lineas = await pool.query(
-    `SELECT pl.*, pr.codigo AS producto_codigo, pr.nombre AS producto_nombre, pr.unidad
+    `SELECT pl.*, pr.codigo AS producto_codigo, pr.nombre AS producto_nombre, pr.unidad,
+            t.nombre AS proveedor
      FROM poliza_lineas pl JOIN productos pr ON pr.id = pl.producto_id
+     LEFT JOIN terceros t ON t.id = pl.tercero_id
      WHERE pl.poliza_id = $1 ORDER BY pl.id`,
     [req.params.id]
   );
@@ -110,30 +112,33 @@ rutasPolizas.post('/calcular', requierePermiso('polizas', 'ver'), envolver(async
 async function guardarBorrador(bd: PoolClient, id: number | null, req: import('express').Request): Promise<number> {
   const { numero, tercero_id, fecha, bodega, moneda, tipo_cambio, notas } = req.body ?? {};
   const limpio = limpiar(req.body?.lineas, req.body?.gastos)!;
+  const ordenesIds = Array.isArray(req.body?.ordenes_ids)
+    ? (req.body.ordenes_ids as unknown[]).map(Number).filter((n) => Number.isInteger(n))
+    : [];
   const usuario = req.usuario!.id;
   let polizaId = id;
   if (polizaId === null) {
     const p = await bd.query(
-      `INSERT INTO polizas (numero, tercero_id, fecha, bodega, moneda, tipo_cambio, notas, creado_por)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      `INSERT INTO polizas (numero, tercero_id, fecha, bodega, moneda, tipo_cambio, notas, ordenes_ids, creado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [numero, tercero_id || null, fecha, bodega, moneda === 'NIO' ? 'NIO' : 'USD',
-       Number(tipo_cambio) || 1, notas || null, usuario]
+       Number(tipo_cambio) || 1, notas || null, ordenesIds, usuario]
     );
     polizaId = p.rows[0].id as number;
   } else {
     await bd.query(
       `UPDATE polizas SET numero=$2, tercero_id=$3, fecha=$4, bodega=$5, moneda=$6, tipo_cambio=$7,
-              notas=$8, actualizado_por=$9, actualizado_en=now() WHERE id=$1`,
+              notas=$8, ordenes_ids=$9, actualizado_por=$10, actualizado_en=now() WHERE id=$1`,
       [polizaId, numero, tercero_id || null, fecha, bodega, moneda === 'NIO' ? 'NIO' : 'USD',
-       Number(tipo_cambio) || 1, notas || null, usuario]
+       Number(tipo_cambio) || 1, notas || null, ordenesIds, usuario]
     );
     await bd.query('DELETE FROM poliza_lineas WHERE poliza_id = $1', [polizaId]);
     await bd.query('DELETE FROM poliza_gastos WHERE poliza_id = $1', [polizaId]);
   }
   for (const l of limpio.lineas) {
     await bd.query(
-      `INSERT INTO poliza_lineas (poliza_id, producto_id, cantidad, fob_unitario, peso) VALUES ($1,$2,$3,$4,$5)`,
-      [polizaId, l.producto_id, l.cantidad, l.fob_unitario, l.peso]
+      `INSERT INTO poliza_lineas (poliza_id, producto_id, cantidad, fob_unitario, peso, tercero_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [polizaId, l.producto_id, l.cantidad, l.fob_unitario, l.peso, l.tercero_id]
     );
   }
   for (const g of limpio.gastos) {
@@ -242,11 +247,18 @@ rutasPolizas.post('/:id/liquidar', requierePermiso('polizas', 'crear'), envolver
         [asientoId, cfg.cuenta_iva_acreditable, calc.ivaCent / 100, poliza.numero]
       );
     }
-    // C CxP proveedor (FOB)
-    if (calc.fobCent > 0) {
+    // C CxP: el FOB se acredita a la CxP de CADA proveedor por su parte
+    // (multipóliza). La línea sin proveedor cae en el proveedor del encabezado.
+    const fobPorProveedor = new Map<number | null, number>();
+    for (let i = 0; i < lineas.rows.length; i++) {
+      const prov = lineas.rows[i].tercero_id ?? poliza.tercero_id ?? null;
+      fobPorProveedor.set(prov, (fobPorProveedor.get(prov) ?? 0) + calc.porLinea[i]!.fobCent);
+    }
+    for (const [prov, fobCent] of fobPorProveedor) {
+      if (fobCent <= 0) continue;
       await bd.query(
         `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, tercero_id, documento_ref) VALUES ($1,$2,0,$3,$4,$5)`,
-        [asientoId, cfg.cuenta_cxp, calc.fobCent / 100, poliza.tercero_id || null, poliza.numero]
+        [asientoId, cfg.cuenta_cxp, fobCent / 100, prov, poliza.numero]
       );
     }
     // C cada gasto → su cuenta contrapartida
@@ -282,9 +294,18 @@ rutasPolizas.post('/:id/liquidar', requierePermiso('polizas', 'crear'), envolver
       [id, asientoId, calc.fobCent / 100, calc.gastosCent / 100, calc.ivaCent / 100,
        calc.totalInventarioCent / 100, req.usuario!.id]
     );
+    // Las órdenes de compra de las que se armó la póliza quedan recibidas
+    if (Array.isArray(poliza.ordenes_ids) && poliza.ordenes_ids.length > 0) {
+      await bd.query(
+        `UPDATE ordenes_compra SET estado = 'recibida', actualizado_en = now()
+         WHERE id = ANY($1) AND estado IN ('aprobada', 'borrador')`,
+        [poliza.ordenes_ids]
+      );
+    }
     await registrarBitacora(bd, req.usuario!.id, 'liquidar_poliza', 'polizas', String(id), {
       numero: poliza.numero,
       total_inventario: calc.totalInventarioCent / 100,
+      ordenes: poliza.ordenes_ids,
     });
     return { poliza: liquidada.rows[0] };
   });

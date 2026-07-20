@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Bodega, CalculoPoliza, Cliente, Cuenta, Poliza, Producto } from '../tipos';
+import type { Bodega, CalculoPoliza, Cliente, Cuenta, OrdenCompra, Poliza, Producto } from '../tipos';
 import { montoSiempre } from '../formato';
 
 export default function Polizas() {
@@ -58,10 +58,10 @@ function Lista({ alAbrir }: { alAbrir: (id: number | null) => void }) {
   );
 }
 
-interface LineaF { productoId: string; cantidad: string; fob: string; peso: string }
+interface LineaF { productoId: string; cantidad: string; fob: string; peso: string; terceroId: string }
 interface GastoF { concepto: string; monto: string; base: 'valor' | 'peso' | 'unidades'; es_iva: boolean; cuenta: string }
 
-const LINEA0: LineaF = { productoId: '', cantidad: '1', fob: '', peso: '0' };
+const LINEA0: LineaF = { productoId: '', cantidad: '1', fob: '', peso: '0', terceroId: '' };
 const GASTOS_SUGERIDOS = ['Flete', 'Seguro', 'DAI', 'ISC', 'Agencia aduanera', 'Transporte interno'];
 
 function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
@@ -83,6 +83,9 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
   const [lineas, setLineas] = useState<LineaF[]>([{ ...LINEA0 }]);
   const [gastos, setGastos] = useState<GastoF[]>([]);
   const [calc, setCalc] = useState<CalculoPoliza | null>(null);
+  const [ordenesIds, setOrdenesIds] = useState<number[]>([]);
+  const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
+  const [mostrarOC, setMostrarOC] = useState(false);
 
   const soloLectura = poliza !== null && poliza.estado !== 'borrador';
 
@@ -92,11 +95,13 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
       api.get<Bodega[]>('/configuracion/bodegas'),
       api.get<Producto[]>('/productos'),
       api.get<Cuenta[]>('/cuentas'),
-    ]).then(([pr, b, p, c]) => {
+      api.get<OrdenCompra[]>('/ordenes'),
+    ]).then(([pr, b, p, c, oc]) => {
       setProveedores(pr.filter((x) => x.activo));
       setBodegas(b.filter((x) => x.activa));
       setProductos(p.filter((x) => x.activo));
       setCuentas(c.filter((x) => x.es_detalle && x.activa));
+      setOrdenes(oc.filter((x) => x.estado === 'aprobada'));
     }).catch(() => setAviso('❌ Error cargando catálogos'));
 
     if (id) {
@@ -109,9 +114,11 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
         setMoneda(pz.moneda);
         setTc(String(pz.tipo_cambio));
         setNotas(pz.notas ?? '');
+        setOrdenesIds((pz as unknown as { ordenes_ids?: number[] }).ordenes_ids ?? []);
         setLineas((pz.lineas ?? []).map((l) => ({
           productoId: String(l.producto_id), cantidad: String(l.cantidad),
           fob: String(l.fob_unitario), peso: String(l.peso),
+          terceroId: (l as { tercero_id?: number | null }).tercero_id ? String((l as { tercero_id?: number | null }).tercero_id) : '',
         })));
         setGastos(((pz as unknown as { gastos: Array<{ concepto: string; monto: number; base: string; es_iva: boolean; cuenta_contable: string }> }).gastos ?? []).map((g) => ({
           concepto: g.concepto, monto: String(g.monto), base: g.base as GastoF['base'], es_iva: g.es_iva, cuenta: g.cuenta_contable,
@@ -123,14 +130,39 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
   const cuerpo = useMemo(() => ({
     numero, tercero_id: terceroId ? Number(terceroId) : null, fecha, bodega, moneda,
     tipo_cambio: Number(tc) || 1, notas,
+    ordenes_ids: ordenesIds,
     lineas: lineas.filter((l) => l.productoId && Number(l.cantidad) > 0).map((l) => ({
       producto_id: Number(l.productoId), cantidad: Number(l.cantidad),
       fob_unitario: Number(l.fob || 0), peso: Number(l.peso || 0),
+      tercero_id: l.terceroId ? Number(l.terceroId) : null,
     })),
     gastos: gastos.filter((g) => g.concepto && g.cuenta).map((g) => ({
       concepto: g.concepto, monto: Number(g.monto || 0), base: g.base, es_iva: g.es_iva, cuenta_contable: g.cuenta,
     })),
-  }), [numero, terceroId, fecha, bodega, moneda, tc, notas, lineas, gastos]);
+  }), [numero, terceroId, fecha, bodega, moneda, tc, notas, lineas, gastos, ordenesIds]);
+
+  async function jalarOC(oc: OrdenCompra) {
+    setMostrarOC(false);
+    try {
+      const completa = await api.get<OrdenCompra>(`/ordenes/${oc.id}`);
+      const nuevas: LineaF[] = (completa.lineas ?? [])
+        .filter((l) => l.producto_id)
+        .map((l) => ({
+          productoId: String(l.producto_id), cantidad: String(l.cantidad),
+          fob: String(l.costo_unitario), peso: '0', terceroId: String(completa.tercero_id),
+        }));
+      if (nuevas.length === 0) { setAviso('❌ Esa orden no tiene productos de catálogo'); return; }
+      setLineas((prev) => {
+        const base = prev.filter((l) => l.productoId);  // descarta la línea vacía inicial
+        return [...base, ...nuevas];
+      });
+      setOrdenesIds((prev) => (prev.includes(oc.id) ? prev : [...prev, oc.id]));
+      if (!terceroId) setTerceroId(String(completa.tercero_id));
+      setAviso(`✅ Se jalaron ${nuevas.length} producto(s) de la OC-${String(oc.id).padStart(4, '0')} (${completa.proveedor})`);
+    } catch (e) {
+      setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'Error al jalar la orden'}`);
+    }
+  }
 
   // Prorrateo en vivo (mismo cálculo que la liquidación)
   useEffect(() => {
@@ -230,11 +262,21 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
 
       {/* Productos importados */}
       <div className="tarjeta p-6 mb-4">
-        <label className="etiqueta">Productos importados (FOB en {moneda})</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="etiqueta">Productos importados (FOB en {moneda})</label>
+          {!soloLectura && (
+            <button type="button" onClick={() => setMostrarOC(true)} className="boton-suave px-3 py-1 text-[13px]">
+              ⇩ Jalar orden de compra
+            </button>
+          )}
+        </div>
+        {ordenesIds.length > 0 && (
+          <p className="text-[11px] text-slate-400 mb-1">Armada de {ordenesIds.length} orden(es) de compra — al liquidar quedan recibidas.</p>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 text-left">
-              <th className="pb-2">Producto</th><th className="pb-2 w-20">Cant.</th>
+              <th className="pb-2">Producto</th><th className="pb-2 w-40">Proveedor</th><th className="pb-2 w-20">Cant.</th>
               <th className="pb-2 w-28">FOB unit.</th><th className="pb-2 w-24">Peso</th>
               <th className="pb-2 w-32 text-right">Costo p/bodega C$</th><th className="w-8"></th>
             </tr>
@@ -249,6 +291,13 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
                       onChange={(e) => setLineas(lineas.map((x, j) => j === i ? { ...x, productoId: e.target.value } : x))} className="entrada">
                       <option value="">— producto —</option>
                       {productos.map((p) => <option key={p.id} value={p.id}>{p.codigo} · {p.nombre}</option>)}
+                    </select>
+                  </td>
+                  <td className="py-1 pr-2">
+                    <select value={l.terceroId} disabled={soloLectura}
+                      onChange={(e) => setLineas(lineas.map((x, j) => j === i ? { ...x, terceroId: e.target.value } : x))} className="entrada">
+                      <option value="">— del encabezado —</option>
+                      {proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                     </select>
                   </td>
                   <td className="py-1 pr-2"><input type="number" min="0" step="0.01" value={l.cantidad} disabled={soloLectura}
@@ -349,6 +398,39 @@ function Editor({ id, alVolver }: { id: number | null; alVolver: () => void }) {
           </div>
         )}
       </div>
+
+      {mostrarOC && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/40 p-4 pt-[8vh]" onClick={() => setMostrarOC(false)}>
+          <div className="w-full max-w-xl tarjeta p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-borde flex items-center justify-between">
+              <h3 className="font-bold text-tinta">Órdenes de compra aprobadas</h3>
+              <button onClick={() => setMostrarOC(false)} className="text-slate-400 hover:text-tinta">✕</button>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto">
+              <table className="tabla">
+                <thead className="sticky top-0"><tr><th>Orden</th><th>Fecha</th><th>Proveedor</th><th className="text-right">Total C$</th><th></th></tr></thead>
+                <tbody>
+                  {ordenes.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-slate-400">No hay órdenes aprobadas</td></tr>}
+                  {ordenes.map((o) => (
+                    <tr key={o.id}>
+                      <td className="cifra font-medium">OC-{String(o.id).padStart(4, '0')}</td>
+                      <td>{o.fecha.slice(0, 10)}</td>
+                      <td className="font-medium">{o.proveedor}</td>
+                      <td className="text-right cifra">{montoSiempre(o.total)}</td>
+                      <td className="text-right">
+                        <button onClick={() => void jalarOC(o)} className="text-sm font-semibold text-verde hover:text-verde-oscuro">Jalar →</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-3 border-t border-borde text-[11px] text-slate-400">
+              Podés jalar varias órdenes de distintos proveedores — cada producto queda con su proveedor (multipóliza).
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

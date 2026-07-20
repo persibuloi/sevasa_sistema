@@ -370,6 +370,33 @@ describe('pólizas de importación (F5)', () => {
     const e = await pool.query(`SELECT cantidad FROM existencias WHERE producto_id = $1 AND bodega = 'BOD-CEN'`, [prod2]);
     expect(Number(e.rows[0].cantidad)).toBe(10);
   }, 60_000);
+
+  it('multipóliza: el FOB se acredita a la CxP de cada proveedor por su parte', async () => {
+    const prov2 = Number((await pool.query(
+      `INSERT INTO terceros (ruc, nombre, tipo) VALUES ('P002', 'Proveedor dos', 'proveedor') RETURNING id`
+    )).rows[0].id);
+    const prod3 = Number((await pool.query(
+      `INSERT INTO productos (codigo, nombre, unidad, precio_venta) VALUES ('PR-3', 'Producto tres', 'unidad', 80) RETURNING id`
+    )).rows[0].id);
+    const b = await request(app).post('/api/polizas').send({
+      numero: 'POL-MULTI', fecha: '2026-07-09', bodega: 'BOD-CEN', moneda: 'NIO', tipo_cambio: 1,
+      lineas: [
+        { producto_id: 1, cantidad: 1, fob_unitario: 1000, peso: 1, tercero_id: 2 },      // proveedor 2 → 1000
+        { producto_id: prod3, cantidad: 1, fob_unitario: 500, peso: 1, tercero_id: prov2 }, // proveedor nuevo → 500
+      ],
+      gastos: [],
+    });
+    const liq = await request(app).post(`/api/polizas/${b.body.id}/liquidar`).send({});
+    expect(liq.status).toBe(200);
+    const cxp = await pool.query(
+      `SELECT tercero_id, SUM(credito) AS c FROM movimientos
+       WHERE asiento_id = $1 AND cuenta = '2-01' AND credito > 0 GROUP BY tercero_id`,
+      [liq.body.asiento_id]
+    );
+    const porProv = new Map(cxp.rows.map((r) => [Number(r.tercero_id), Number(r.c)]));
+    expect(porProv.get(2)).toBeCloseTo(1000, 2);
+    expect(porProv.get(prov2)).toBeCloseTo(500, 2);
+  }, 60_000);
 });
 
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
