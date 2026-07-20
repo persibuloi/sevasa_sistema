@@ -28,9 +28,15 @@ rutasSeries.post('/', requierePermiso('admin', 'editar'), envolver(async (req, r
     res.status(400).json({ error: 'ultimo_numero debe ser un entero >= 0' });
     return;
   }
+  const desde = Number((req.body ?? {}).numero_desde ?? 1);
+  if (!Number.isInteger(desde) || desde < 1) {
+    res.status(400).json({ error: 'numero_desde debe ser un entero >= 1' });
+    return;
+  }
   const r = await pool.query(
-    `INSERT INTO series (serie, sucursal, tipo, prefijo, ultimo_numero) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [serie, sucursal, tipo === 'manual' ? 'manual' : 'sistema', prefijo, inicial]
+    `INSERT INTO series (serie, sucursal, tipo, prefijo, ultimo_numero, numero_desde)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [serie, sucursal, tipo === 'manual' ? 'manual' : 'sistema', prefijo, inicial, desde]
   );
   await registrarBitacora(pool, req.usuario!.id, 'crear_serie', 'series', serie, r.rows[0]);
   res.status(201).json(r.rows[0]);
@@ -60,9 +66,14 @@ rutasSeries.get('/:serie/control', requierePermiso('facturacion', 'ver'), envolv
   );
   const usados = new Set(filas.rows.map((f) => Number(f.numero)));
   const maximo = filas.rows.length > 0 ? Number(filas.rows[filas.rows.length - 1].numero) : 0;
-  const minimo = filas.rows.length > 0 ? Number(filas.rows[0].numero) : 0;
+  const primerGrabado = filas.rows.length > 0 ? Number(filas.rows[0].numero) : 0;
+  // En series manuales los huecos se cuentan desde el inicio del talonario
+  const minimo =
+    s.rows[0].tipo === 'manual' && Number(s.rows[0].numero_desde) > 0 && maximo > 0
+      ? Math.min(Number(s.rows[0].numero_desde), primerGrabado)
+      : primerGrabado;
   const huecos: number[] = [];
-  for (let n = minimo; n <= maximo && huecos.length < 200; n++) {
+  for (let n = minimo; n > 0 && n <= maximo && huecos.length < 200; n++) {
     if (!usados.has(n)) huecos.push(n);
   }
   res.json({
@@ -101,9 +112,20 @@ rutasSeries.put('/:serie', requierePermiso('admin', 'editar'), envolver(async (r
     }
     nuevoUltimo = solicitado;
   }
+  let nuevoDesde = Number(antes.rows[0].numero_desde ?? 1);
+  const desdePedido = (req.body ?? {}).numero_desde;
+  if (desdePedido !== undefined && desdePedido !== null && desdePedido !== '') {
+    const d = Number(desdePedido);
+    if (!Number.isInteger(d) || d < 1) {
+      res.status(400).json({ error: 'numero_desde debe ser un entero >= 1' });
+      return;
+    }
+    nuevoDesde = d;
+  }
   const r = await pool.query(
-    `UPDATE series SET sucursal = $2, activa = $3, ultimo_numero = $4 WHERE serie = $1 RETURNING *`,
-    [req.params.serie, sucursal ?? antes.rows[0].sucursal, activa ?? antes.rows[0].activa, nuevoUltimo]
+    `UPDATE series SET sucursal = $2, activa = $3, ultimo_numero = $4, numero_desde = $5
+     WHERE serie = $1 RETURNING *`,
+    [req.params.serie, sucursal ?? antes.rows[0].sucursal, activa ?? antes.rows[0].activa, nuevoUltimo, nuevoDesde]
   );
   await registrarBitacora(pool, req.usuario!.id, 'editar_serie', 'series', req.params.serie, {
     antes: antes.rows[0],

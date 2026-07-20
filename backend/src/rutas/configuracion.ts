@@ -17,22 +17,22 @@ rutasConfiguracion.get('/sucursales', envolver(async (_req, res) => {
 }));
 
 rutasConfiguracion.post('/sucursales', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
-  const { codigo, nombre, direccion, telefono } = req.body ?? {};
+  const { codigo, nombre, direccion, telefono, cuenta_caja } = req.body ?? {};
   if (!codigo || !nombre) {
     res.status(400).json({ error: 'codigo y nombre son obligatorios' });
     return;
   }
   const r = await pool.query(
-    `INSERT INTO sucursales (codigo, nombre, direccion, telefono, creado_por)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [codigo, nombre, direccion || null, telefono || null, req.usuario!.id]
+    `INSERT INTO sucursales (codigo, nombre, direccion, telefono, cuenta_caja, creado_por)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [codigo, nombre, direccion || null, telefono || null, cuenta_caja || null, req.usuario!.id]
   );
   await registrarBitacora(pool, req.usuario!.id, 'crear_sucursal', 'sucursales', codigo, r.rows[0]);
   res.status(201).json(r.rows[0]);
 }));
 
 rutasConfiguracion.put('/sucursales/:codigo', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
-  const { nombre, direccion, telefono, activa } = req.body ?? {};
+  const { nombre, direccion, telefono, activa, cuenta_caja } = req.body ?? {};
   const antes = await pool.query('SELECT * FROM sucursales WHERE codigo = $1', [req.params.codigo]);
   if (antes.rowCount === 0) {
     res.status(404).json({ error: 'Sucursal no existe' });
@@ -40,11 +40,12 @@ rutasConfiguracion.put('/sucursales/:codigo', requierePermiso('admin', 'editar')
   }
   const r = await pool.query(
     `UPDATE sucursales
-     SET nombre = $2, direccion = $3, telefono = $4, activa = $5,
-         actualizado_por = $6, actualizado_en = now()
+     SET nombre = $2, direccion = $3, telefono = $4, activa = $5, cuenta_caja = $6,
+         actualizado_por = $7, actualizado_en = now()
      WHERE codigo = $1 RETURNING *`,
     [req.params.codigo, nombre ?? antes.rows[0].nombre, direccion ?? antes.rows[0].direccion,
-     telefono ?? antes.rows[0].telefono, activa ?? antes.rows[0].activa, req.usuario!.id]
+     telefono ?? antes.rows[0].telefono, activa ?? antes.rows[0].activa,
+     cuenta_caja !== undefined ? (cuenta_caja || null) : antes.rows[0].cuenta_caja, req.usuario!.id]
   );
   await registrarBitacora(pool, req.usuario!.id, 'editar_sucursal', 'sucursales', req.params.codigo, {
     antes: antes.rows[0],

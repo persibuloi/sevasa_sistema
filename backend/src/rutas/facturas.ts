@@ -230,18 +230,36 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
 
     // Consecutivo con row-lock sobre la serie (plan §F2)
     const s = await bd.query(
-      'SELECT tipo, prefijo, ultimo_numero, activa FROM series WHERE serie = $1 FOR UPDATE',
+      'SELECT tipo, prefijo, ultimo_numero, activa, numero_desde, sucursal FROM series WHERE serie = $1 FOR UPDATE',
       [factura.serie]
     );
     if (s.rowCount === 0 || !s.rows[0].activa) {
       return { error: 409, mensaje: `La serie ${factura.serie} no existe o está inactiva` };
     }
+
+    // Amarre por tienda: el vendedor debe pertenecer a la sucursal de la serie
+    // (vendedor sin sucursal asignada = comodín, puede facturar en cualquiera)
+    if (factura.vendedor_id && s.rows[0].sucursal) {
+      const vend = await bd.query('SELECT nombre, sucursal FROM vendedores WHERE id = $1', [factura.vendedor_id]);
+      const sucursalVendedor = vend.rows[0]?.sucursal;
+      if (sucursalVendedor && sucursalVendedor !== s.rows[0].sucursal) {
+        return {
+          error: 400,
+          mensaje: `${vend.rows[0].nombre} pertenece a la sucursal ${sucursalVendedor} — no puede facturar en la serie ${factura.serie}`,
+        };
+      }
+    }
+
     const esManual = s.rows[0].tipo === 'manual';
     let numero: number;
     if (esManual) {
       // Factura de PAPEL: el número lo trae el talonario, se digita
       if (!Number.isInteger(numeroManual) || numeroManual <= 0) {
         return { error: 400, mensaje: `La serie ${factura.serie} es manual: indicá el número de la factura de papel` };
+      }
+      const desde = Number(s.rows[0].numero_desde ?? 1);
+      if (numeroManual < desde) {
+        return { error: 400, mensaje: `El talonario de la serie ${factura.serie} empieza en el Nº ${desde}` };
       }
       const usado = await bd.query('SELECT 1 FROM facturas WHERE serie = $1 AND numero = $2', [
         factura.serie, numeroManual,
@@ -272,7 +290,14 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
        req.usuario!.id]
     );
     const asientoId = asiento.rows[0].id;
-    const cuentaCargo = factura.tipo_pago === 'contado' ? cfg.cuenta_caja : cfg.cuenta_cxc;
+    // Contado: la plata cae en la CAJA DE LA TIENDA (sucursal de la serie);
+    // si la sucursal no tiene cuenta de caja asignada, va a la caja general
+    let cuentaCaja = cfg.cuenta_caja;
+    if (factura.tipo_pago === 'contado' && s.rows[0].sucursal) {
+      const suc = await bd.query('SELECT cuenta_caja FROM sucursales WHERE codigo = $1', [s.rows[0].sucursal]);
+      if (suc.rows[0]?.cuenta_caja) cuentaCaja = suc.rows[0].cuenta_caja;
+    }
+    const cuentaCargo = factura.tipo_pago === 'contado' ? cuentaCaja : cfg.cuenta_cxc;
     await bd.query(
       `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, tercero_id, documento_ref)
        VALUES ($1, $2, $3, 0, $4, $5)`,

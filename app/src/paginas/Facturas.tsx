@@ -140,7 +140,16 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
 
   const soloLectura = factura !== null && factura.estado !== 'borrador';
-  const serieManual = series.find((x) => x.serie === serie)?.tipo === 'manual';
+  const serieElegida = series.find((x) => x.serie === serie);
+  const serieManual = serieElegida?.tipo === 'manual';
+  // Amarre por tienda: solo vendedores de la sucursal de la serie (o sin asignar)
+  const vendedoresDeTienda = useMemo(
+    () =>
+      vendedores.filter(
+        (v) => !v.sucursal || !serieElegida?.sucursal || v.sucursal === serieElegida.sucursal
+      ),
+    [vendedores, serieElegida]
+  );
 
   useEffect(() => {
     Promise.all([
@@ -375,7 +384,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 className="entrada"
               >
                 <option value="">— sin vendedor —</option>
-                {vendedores.map((v) => (
+                {vendedoresDeTienda.map((v) => (
                   <option key={v.id} value={v.id}>{v.codigo ? `${v.codigo} · ` : ''}{v.nombre}</option>
                 ))}
               </select>

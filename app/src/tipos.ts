@@ -72,6 +72,7 @@ export interface Serie {
   documento: 'factura' | 'recibo' | 'nota_credito';
   prefijo: string;
   ultimo_numero: number;
+  numero_desde: number;
   activa: boolean;
 }
 
@@ -90,6 +91,7 @@ export interface Sucursal {
   nombre: string;
   direccion: string | null;
   telefono: string | null;
+  cuenta_caja: string | null;
   activa: boolean;
 }
 
