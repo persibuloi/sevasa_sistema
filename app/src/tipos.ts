@@ -115,12 +115,23 @@ export interface Cliente {
   facturas_emitidas?: number;
 }
 
+export interface Producto {
+  id: number;
+  codigo: string;
+  nombre: string;
+  unidad: string;
+  categoria: string | null;
+  precio_venta: string | number;
+  activo: boolean;
+}
+
 export interface LineaFactura {
   id?: number;
   descripcion: string;
   cantidad: string | number;
   precio_unitario: string | number;
   total?: string | number;
+  producto_id?: number | null;
 }
 
 export interface Factura {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Cliente, Factura, Serie, Vendedor } from '../tipos';
+import type { Cliente, Factura, Producto, Serie, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
 
 type Vista = { modo: 'lista' } | { modo: 'editor'; id: number | null };
@@ -112,18 +112,20 @@ function ListaFacturas({ alAbrir }: { alAbrir: (id: number | null) => void }) {
 /* ----------------------------------------------------------------- editor */
 
 interface LineaForm {
+  productoId: string;
   descripcion: string;
   cantidad: string;
   precio: string;
 }
 
-const LINEA_NUEVA: LineaForm = { descripcion: '', cantidad: '1', precio: '' };
+const LINEA_NUEVA: LineaForm = { productoId: '', descripcion: '', cantidad: '1', precio: '' };
 
 function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => void }) {
   const [factura, setFactura] = useState<Factura | null>(null);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [series, setSeries] = useState<Serie[]>([]);
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+  const [productos, setProductos] = useState<Producto[]>([]);
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -144,11 +146,13 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       api.get<Serie[]>('/series'),
       api.get<Array<{ clave: string; valor: string }>>('/config'),
       api.get<Vendedor[]>('/configuracion/vendedores'),
+      api.get<Producto[]>('/productos'),
     ])
-      .then(([c, s, cfg, v]) => {
+      .then(([c, s, cfg, v, p]) => {
         setClientes(c.filter((x) => x.activo));
         setSeries(s.filter((x) => x.activa && x.tipo === 'sistema'));
         setVendedores(v.filter((x) => x.activo));
+        setProductos(p.filter((x) => x.activo));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
         if (!id && s.length > 0) setSerie(s[0]?.serie ?? '');
@@ -168,6 +172,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           setNotas(f.notas ?? '');
           setLineas(
             (f.lineas ?? []).map((l) => ({
+              productoId: l.producto_id ? String(l.producto_id) : '',
               descripcion: l.descripcion,
               cantidad: String(l.cantidad),
               precio: String(l.precio_unitario),
@@ -205,6 +210,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       lineas: lineas
         .filter((l) => l.descripcion)
         .map((l) => ({
+          producto_id: l.productoId ? Number(l.productoId) : null,
           descripcion: l.descripcion,
           cantidad: Number(l.cantidad),
           precio_unitario: Number(l.precio),
@@ -392,6 +398,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           <table className="w-full text-sm mb-2">
             <thead>
               <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 text-left">
+                <th className="pb-2 w-44">Producto</th>
                 <th className="pb-2">Descripción</th>
                 <th className="pb-2 w-24">Cant.</th>
                 <th className="pb-2 w-32">Precio unit.</th>
@@ -404,6 +411,35 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 const importe = Math.round(Number(l.cantidad || 0) * Math.round(Number(l.precio || 0) * 100)) / 100;
                 return (
                   <tr key={i}>
+                    <td className="py-1 pr-2">
+                      <select
+                        value={l.productoId}
+                        disabled={soloLectura}
+                        onChange={(e) => {
+                          const producto = productos.find((p) => String(p.id) === e.target.value);
+                          setLineas(
+                            lineas.map((x, j) =>
+                              j === i
+                                ? producto
+                                  ? {
+                                      ...x,
+                                      productoId: e.target.value,
+                                      descripcion: producto.nombre,
+                                      precio: String(producto.precio_venta),
+                                    }
+                                  : { ...x, productoId: '' }
+                                : x
+                            )
+                          );
+                        }}
+                        className="entrada"
+                      >
+                        <option value="">— libre —</option>
+                        {productos.map((p) => (
+                          <option key={p.id} value={p.id}>{p.codigo} · {p.nombre}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="py-1 pr-2">
                       <input
                         value={l.descripcion}

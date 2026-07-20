@@ -13,6 +13,7 @@ import { rutasSeries } from './rutas/series';
 import { rutasFacturas } from './rutas/facturas';
 import { rutasConfig } from './rutas/config';
 import { rutasConfiguracion } from './rutas/configuracion';
+import { rutasProductos } from './rutas/productos';
 
 const app = express();
 app.use(cors());
@@ -39,6 +40,7 @@ app.use('/api/series', autenticar, rutasSeries);
 app.use('/api/facturas', autenticar, rutasFacturas);
 app.use('/api/config', autenticar, rutasConfig);
 app.use('/api/configuracion', autenticar, rutasConfiguracion); // sucursales, bodegas, vendedores
+app.use('/api/productos', autenticar, rutasProductos);
 app.use('/api', autenticar, rutasReportes); // /api/balanza, /api/mayor/:cuenta
 
 // Traducción de errores de BD a respuestas claras (los triggers hablan español)

@@ -179,6 +179,20 @@ async function sembrar(): Promise<void> {
       ON CONFLICT DO NOTHING`);
     console.log('✅ 2 series de facturación');
 
+    // Productos de prueba (lista de precios sin inventario)
+    await bd.query(`
+      INSERT INTO productos (codigo, nombre, unidad, categoria, precio_venta) VALUES
+        ('P-001', 'Cemento gris 42.5 kg',             'bolsa',  'Construcción', 385.00),
+        ('P-002', 'Lámina de zinc cal. 26 — 12 pies', 'unidad', 'Techos',       620.00),
+        ('P-003', 'Varilla de hierro 3/8" estándar',  'unidad', 'Construcción', 195.00),
+        ('P-004', 'Pintura de aceite blanca',         'galón',  'Pinturas',     950.00),
+        ('P-005', 'Clavos 2½"',                       'libra',  'Ferretería',    28.00),
+        ('P-006', 'Tubo PVC ½" presión',              'unidad', 'Fontanería',    85.00),
+        ('P-007', 'Alambre de amarre',                'libra',  'Ferretería',    32.00),
+        ('P-008', 'Pala punta redonda',               'unidad', 'Herramientas', 310.00)
+      ON CONFLICT (codigo) DO NOTHING`);
+    console.log('✅ 8 productos de prueba');
+
     // Junio queda cerrado para demostrar el candado de período
     await bd.query(`UPDATE periodos SET estado = 'cerrado', cerrado_en = now() WHERE ano_mes = '2026-06'`);
     console.log('🔒 Período 2026-06 cerrado (probá tocarlo: la BD lo rechaza)');

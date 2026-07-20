@@ -12,6 +12,7 @@ interface LineaEntrada {
   descripcion: string;
   cantidad: number;
   precio_unitario: number;
+  producto_id?: number | null;
 }
 
 interface TotalesFactura {
@@ -32,9 +33,15 @@ function calcularTotales(lineas: unknown, tasaIva: number): TotalesFactura | nul
     if (!l.descripcion || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precio) || precio < 0) {
       return null;
     }
-    const totalCent = Math.round(cantidad * aCentavos(precio)) ;
+    const totalCent = Math.round(cantidad * aCentavos(precio));
     subtotalCent += totalCent;
-    limpias.push({ descripcion: l.descripcion, cantidad, precio_unitario: precio, total: totalCent / 100 });
+    limpias.push({
+      descripcion: l.descripcion,
+      cantidad,
+      precio_unitario: precio,
+      producto_id: l.producto_id ?? null,
+      total: totalCent / 100,
+    });
   }
   const ivaCent = Math.round(subtotalCent * tasaIva);
   return {
@@ -111,9 +118,9 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
     );
     for (const l of totales.lineas) {
       await bd.query(
-        `INSERT INTO factura_lineas (factura_id, descripcion, cantidad, precio_unitario, total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [f.rows[0].id, l.descripcion, l.cantidad, l.precio_unitario, l.total]
+        `INSERT INTO factura_lineas (factura_id, descripcion, cantidad, precio_unitario, total, producto_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [f.rows[0].id, l.descripcion, l.cantidad, l.precio_unitario, l.total, l.producto_id]
       );
     }
     return f.rows[0];
@@ -152,9 +159,9 @@ rutasFacturas.put('/:id', requierePermiso('facturacion', 'editar'), envolver(asy
     await bd.query('DELETE FROM factura_lineas WHERE factura_id = $1', [req.params.id]);
     for (const l of totales.lineas) {
       await bd.query(
-        `INSERT INTO factura_lineas (factura_id, descripcion, cantidad, precio_unitario, total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [req.params.id, l.descripcion, l.cantidad, l.precio_unitario, l.total]
+        `INSERT INTO factura_lineas (factura_id, descripcion, cantidad, precio_unitario, total, producto_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [req.params.id, l.descripcion, l.cantidad, l.precio_unitario, l.total, l.producto_id]
       );
     }
     return f.rows[0];
