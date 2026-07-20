@@ -255,30 +255,32 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
       'SELECT producto_id, cantidad FROM factura_lineas WHERE factura_id = $1 AND producto_id IS NOT NULL',
       [id]
     );
+    // Bodega OBLIGATORIA si hay productos (sin fallback implícito — auditoría),
+    // revalidada completa al emitir: activa Y de la sucursal de la serie
     let bodega: string | null = null;
     if ((lineasProducto.rowCount ?? 0) > 0) {
-      if (factura.bodega) {
-        // Bodega EXPLÍCITA del documento (auditoría P1)
-        const b = await bd.query('SELECT activa FROM bodegas WHERE codigo = $1', [factura.bodega]);
-        if (!b.rows[0]?.activa) {
-          return { error: 400, mensaje: `La bodega ${factura.bodega} de la factura no está activa` };
-        }
-        bodega = factura.bodega;
-      } else {
-        // Respaldo: la primera bodega activa de la sucursal de la serie
-        const b = await bd.query(
-          `SELECT b.codigo FROM bodegas b JOIN series s ON s.sucursal = b.sucursal
-           WHERE s.serie = $1 AND b.activa ORDER BY b.codigo LIMIT 1`,
-          [factura.serie]
-        );
-        if (b.rowCount === 0) {
-          return {
-            error: 400,
-            mensaje: `La sucursal de la serie ${factura.serie} no tiene bodega activa — creala en Configuración → Bodegas`,
-          };
-        }
-        bodega = b.rows[0].codigo;
+      if (!factura.bodega) {
+        return {
+          error: 400,
+          mensaje: 'La factura tiene productos pero no bodega de despacho — elegila en el editor y guardá el borrador',
+        };
       }
+      const b = await bd.query(
+        `SELECT b.activa, b.sucursal, s.sucursal AS sucursal_serie
+         FROM bodegas b CROSS JOIN series s
+         WHERE b.codigo = $1 AND s.serie = $2`,
+        [factura.bodega, factura.serie]
+      );
+      if (!b.rows[0]?.activa) {
+        return { error: 400, mensaje: `La bodega ${factura.bodega} de la factura no está activa` };
+      }
+      if (b.rows[0].sucursal_serie && b.rows[0].sucursal !== b.rows[0].sucursal_serie) {
+        return {
+          error: 400,
+          mensaje: `La bodega ${factura.bodega} ya no pertenece a la sucursal de la serie ${factura.serie}`,
+        };
+      }
+      bodega = factura.bodega;
     }
 
     const cliente = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [factura.tercero_id]);

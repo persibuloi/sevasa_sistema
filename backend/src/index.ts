@@ -22,11 +22,49 @@ import { rutasTraslados } from './rutas/traslados';
 import { rutasBancos } from './rutas/bancos';
 
 const app = express();
-// En producción, CORS_ORIGEN limita los orígenes (ej: https://contable.sevasa.com)
+// En producción CORS_ORIGEN es OBLIGATORIO (ej: https://contable.sevasa.com);
+// sin él, el servidor se niega a arrancar — nunca CORS abierto en producción
 const origenes = process.env.CORS_ORIGEN?.split(',').map((s) => s.trim()).filter(Boolean);
+if (process.env.NODE_ENV === 'production' && (!origenes || origenes.length === 0)) {
+  throw new Error('❌ En producción CORS_ORIGEN es obligatorio (orígenes separados por coma)');
+}
 app.use(cors(origenes && origenes.length > 0 ? { origin: origenes } : {}));
 app.use(express.json({ limit: '1mb' }));
 app.disable('x-powered-by');
+
+// Cabeceras defensivas (API pura, sin HTML)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
+// Límite de peticiones por IP: RATE_LIMIT por minuto (default 300, mínimo 30)
+const LIMITE_POR_MINUTO = Math.max(Number(process.env.RATE_LIMIT ?? 300) || 300, 30);
+const ventanas = new Map<string, { inicio: number; n: number }>();
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [ip, v] of ventanas) {
+    if (ahora - v.inicio > 120_000) ventanas.delete(ip);
+  }
+}, 300_000).unref();
+app.use((req, res, next) => {
+  const ip = req.ip ?? 'desconocida';
+  const ahora = Date.now();
+  const v = ventanas.get(ip);
+  if (!v || ahora - v.inicio > 60_000) {
+    ventanas.set(ip, { inicio: ahora, n: 1 });
+    next();
+    return;
+  }
+  v.n += 1;
+  if (v.n > LIMITE_POR_MINUTO) {
+    res.status(429).json({ error: 'Demasiadas peticiones — esperá un momento' });
+    return;
+  }
+  next();
+});
 
 app.get('/api/salud', async (_req, res) => {
   try {

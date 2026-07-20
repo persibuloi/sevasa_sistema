@@ -106,24 +106,31 @@ facturador, comprador, consulta.
 ## Seguridad (auditoría 2026-07 — migración 014)
 
 - RLS habilitado en TODAS las tablas + REVOKE total a anon/authenticated
-  (tablas, secuencias, funciones, USAGE del esquema y default privileges).
-  PostgREST devuelve 401: el ÚNICO camino a los datos es el backend.
+  (tablas, VISTAS con security_invoker, secuencias, funciones, USAGE del
+  esquema — incluida la herencia vía PUBLIC — y default privileges).
+  PostgREST devuelve 401 en tablas Y vistas: el ÚNICO camino es el backend.
   El backend conecta como dueño de las tablas → RLS no lo afecta.
-  REGLA: toda tabla nueva nace cerrada; si algún día se quiere acceso directo
-  vía supabase-js, se agrega política RLS explícita en migración.
+  REGLA: toda tabla O VISTA nueva nace cerrada (las vistas NO están en
+  pg_tables — revocar aparte y con security_invoker); si algún día se quiere
+  acceso directo vía supabase-js, política RLS explícita en migración.
 - Aplicaciones SIEMPRE agregadas por documento antes de validar saldo
   (recibos→facturas, pagos→compras, devoluciones→líneas): repetir un id en la
   petición se suma, jamás sobreaplica.
-- Inmutabilidad BD en TODOS los documentos (facturas, compras, recibos, notas,
-  movimientos_banco, traslados): solo transición a anulado (+conciliado en
-  bancos); líneas/aplicaciones solo se insertan en la MISMA transacción que
-  crea su documento (creado_en = now()).
+- Inmutabilidad BD TOTAL (comparación jsonb) en TODOS los documentos
+  (facturas, compras, recibos, notas, movimientos_banco, traslados): solo la
+  transición a anulado (+conciliado en bancos), ningún otro campo se toca;
+  líneas/aplicaciones solo se insertan en la MISMA transacción que crea su
+  documento (creado_en = now()).
+- Bodega OBLIGATORIA al emitir factura con productos (sin fallback implícito),
+  revalidada al emitir contra la sucursal de la serie.
 - USD bloqueado en bancos hasta implementar multimoneda completa.
 - Bootstrap del primer admin: atómico con pg_advisory_xact_lock.
-- CORS restringible con CORS_ORIGEN (coma-separado); json limit 1mb; timeout
-  10s al validar tokens.
-- Pendiente de la auditoría: tests contables automatizados (Jest), columnas de
-  auditoría en tablas menores, rate limiting.
+- HTTP: CORS_ORIGEN OBLIGATORIO en producción (el server no arranca sin él);
+  rate limit por IP (RATE_LIMIT/min, default 300); cabeceras nosniff/DENY/
+  no-referrer; json limit 1mb; timeout 10s validando tokens; PG_POOL_MAX
+  validado (1-50). Bundle dividido (vendor chunk).
+- Pendiente de la auditoría: tests contables automatizados (Jest) y columnas
+  de auditoría en tablas menores.
 
 ## Capacidad y concurrencia
 

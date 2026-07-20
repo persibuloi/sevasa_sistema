@@ -120,6 +120,11 @@ rutasTraslados.post('/:id/anular', requierePermiso('inventario', 'anular'), envo
     return;
   }
   const hoy = new Date().toISOString().slice(0, 10);
+  const errorPeriodo = await periodoAbierto(hoy.slice(0, 7));
+  if (errorPeriodo) {
+    res.status(400).json({ error: errorPeriodo });
+    return;
+  }
 
   const resultado = await enTransaccion(async (bd: PoolClient): Promise<{ error?: number; mensaje?: string; traslado?: unknown }> => {
     const t = await bd.query('SELECT * FROM traslados WHERE id = $1 FOR UPDATE', [id]);

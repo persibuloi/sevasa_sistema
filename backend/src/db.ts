@@ -13,8 +13,12 @@ export const pool = new Pool({
   // Supabase exige TLS; en Postgres local (docker) no hay certificado
   ssl: url.includes('supabase.co') ? { rejectUnauthorized: false } : undefined,
   // 20-30 usuarios concurrentes: el pooler de Supabase multiplexa por
-  // transacción, así que 10 conexiones del backend rinden de sobra
-  max: Number(process.env.PG_POOL_MAX ?? 10),
+  // transacción, así que 10 conexiones del backend rinden de sobra.
+  // El valor se valida: entero entre 1 y 50, si no → 10.
+  max: (() => {
+    const n = Number(process.env.PG_POOL_MAX ?? 10);
+    return Number.isInteger(n) && n >= 1 && n <= 50 ? n : 10;
+  })(),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });
