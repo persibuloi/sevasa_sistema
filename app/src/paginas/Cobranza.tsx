@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
 import type { Cliente, Factura, FacturaPendiente, NotaCredito, Recibo, ResumenCartera } from '../tipos';
 import { montoSiempre } from '../formato';
@@ -12,7 +13,9 @@ const PESTANAS = [
 type Pestana = (typeof PESTANAS)[number]['clave'];
 
 export default function Cobranza() {
-  const [pestana, setPestana] = useState<Pestana>('cartera');
+  const navigate = useNavigate();
+  const { pestana: parametro } = useParams();
+  const pestana: Pestana = PESTANAS.some((p) => p.clave === parametro) ? (parametro as Pestana) : 'cartera';
 
   return (
     <div>
@@ -20,7 +23,7 @@ export default function Cobranza() {
         {PESTANAS.map((p) => (
           <button
             key={p.clave}
-            onClick={() => setPestana(p.clave)}
+            onClick={() => navigate(`/cobranza/${p.clave}`)}
             className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               pestana === p.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
             }`}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
 import type { Cliente, CompraPendiente, Cuenta, CuentaBancaria, MovimientoBanco } from '../tipos';
 import { montoSiempre } from '../formato';
@@ -25,7 +26,9 @@ function nombreTipo(tipo: MovimientoBanco['tipo'], numero: number | null): strin
 }
 
 export default function Bancos() {
-  const [pestana, setPestana] = useState<Pestana>('movimientos');
+  const navigate = useNavigate();
+  const { pestana: parametro } = useParams();
+  const pestana: Pestana = PESTANAS.some((p) => p.clave === parametro) ? (parametro as Pestana) : 'movimientos';
 
   return (
     <div>
@@ -33,7 +36,7 @@ export default function Bancos() {
         {PESTANAS.map((p) => (
           <button
             key={p.clave}
-            onClick={() => setPestana(p.clave)}
+            onClick={() => navigate(`/bancos/${p.clave}`)}
             className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               pestana === p.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
             }`}

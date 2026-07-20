@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
 import type { Bodega, Cliente, Compra, OrdenCompra, Producto } from '../tipos';
 import { montoSiempre } from '../formato';
@@ -19,7 +20,9 @@ interface PrefillCompra {
 }
 
 export default function Compras() {
-  const [pestana, setPestana] = useState<Pestana>('compras');
+  const navigate = useNavigate();
+  const { pestana: parametro } = useParams();
+  const pestana: Pestana = PESTANAS.some((p) => p.clave === parametro) ? (parametro as Pestana) : 'compras';
   const [prefill, setPrefill] = useState<PrefillCompra | null>(null);
 
   return (
@@ -28,7 +31,7 @@ export default function Compras() {
         {PESTANAS.map((p) => (
           <button
             key={p.clave}
-            onClick={() => setPestana(p.clave)}
+            onClick={() => navigate(`/compras/${p.clave}`)}
             className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               pestana === p.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
             }`}
@@ -43,7 +46,7 @@ export default function Compras() {
         <TabOrdenes
           alConvertir={(p) => {
             setPrefill(p);
-            setPestana('compras');
+            navigate('/compras/compras');
           }}
         />
       )}

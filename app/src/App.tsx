@@ -170,20 +170,35 @@ const GRUPOS = [
       { ruta: '/facturas', titulo: 'Facturas', trazos: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6', 'M9 12h6'] },
       { ruta: '/clientes', titulo: 'Clientes', trazos: ['M16 21v-2a4 4 0 0 0-8 0v2', 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M20 21v-2a3.5 3.5 0 0 0-2.5-3.4'] },
       { ruta: '/productos', titulo: 'Productos', trazos: ['M21 8l-9-5-9 5v8l9 5 9-5V8z', 'M3.3 8.3L12 13l8.7-4.7', 'M12 13v9'] },
-      { ruta: '/cobranza', titulo: 'Cobranza', trazos: ['M3 7h18v12H3z', 'M3 7l2-3h14l2 3', 'M16 13h.01'] },
+      { ruta: '/cobranza', titulo: 'Cobranza', trazos: ['M3 7h18v12H3z', 'M3 7l2-3h14l2 3', 'M16 13h.01'],
+        subs: [
+          { ruta: '/cobranza/cartera', titulo: 'Cartera' },
+          { ruta: '/cobranza/recibos', titulo: 'Recibos de cobro' },
+          { ruta: '/cobranza/notas', titulo: 'Notas de crédito' },
+        ] },
     ],
   },
   {
     titulo: 'Compras e inventario',
     items: [
-      { ruta: '/compras', titulo: 'Compras', trazos: ['M6 6h15l-1.5 9H7.5z', 'M6 6L5 2H2', 'M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'] },
+      { ruta: '/compras', titulo: 'Compras', trazos: ['M6 6h15l-1.5 9H7.5z', 'M6 6L5 2H2', 'M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
+        subs: [
+          { ruta: '/compras/compras', titulo: 'Compras' },
+          { ruta: '/compras/ordenes', titulo: 'Órdenes de compra' },
+          { ruta: '/compras/proveedores', titulo: 'Proveedores' },
+        ] },
       { ruta: '/traslados', titulo: 'Traslados', trazos: ['M17 3l4 4-4 4', 'M21 7H8', 'M7 21l-4-4 4-4', 'M3 17h13'] },
     ],
   },
   {
     titulo: 'Tesorería',
     items: [
-      { ruta: '/bancos', titulo: 'Bancos y cheques', trazos: ['M3 21h18', 'M4 18h16', 'M5 18V9M9.5 18V9M14.5 18V9M19 18V9', 'M2 9l10-6 10 6z'] },
+      { ruta: '/bancos', titulo: 'Bancos y cheques', trazos: ['M3 21h18', 'M4 18h16', 'M5 18V9M9.5 18V9M14.5 18V9M19 18V9', 'M2 9l10-6 10 6z'],
+        subs: [
+          { ruta: '/bancos/movimientos', titulo: 'Movimientos' },
+          { ruta: '/bancos/conciliacion', titulo: 'Conciliación' },
+          { ruta: '/bancos/cuentas', titulo: 'Cuentas bancarias' },
+        ] },
     ],
   },
   {
@@ -199,10 +214,22 @@ const GRUPOS = [
   {
     titulo: 'Administración',
     items: [
-      { ruta: '/configuracion', titulo: 'Configuración', trazos: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v2.5', 'M12 19.5V22', 'M2 12h2.5', 'M19.5 12H22', 'M4.6 4.6l1.8 1.8', 'M17.6 17.6l1.8 1.8', 'M19.4 4.6l-1.8 1.8', 'M6.4 17.6l-1.8 1.8'] },
+      { ruta: '/configuracion', titulo: 'Configuración', trazos: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v2.5', 'M12 19.5V22', 'M2 12h2.5', 'M19.5 12H22', 'M4.6 4.6l1.8 1.8', 'M17.6 17.6l1.8 1.8', 'M19.4 4.6l-1.8 1.8', 'M6.4 17.6l-1.8 1.8'],
+        subs: [
+          { ruta: '/configuracion/sucursales', titulo: 'Sucursales' },
+          { ruta: '/configuracion/bodegas', titulo: 'Bodegas' },
+          { ruta: '/configuracion/vendedores', titulo: 'Vendedores' },
+          { ruta: '/configuracion/series', titulo: 'Series de factura' },
+          { ruta: '/configuracion/parametros', titulo: 'Parámetros' },
+        ] },
     ],
   },
 ] as const;
+
+interface SubItem {
+  ruta: string;
+  titulo: string;
+}
 
 const TITULOS: Record<string, string> = {
   '/facturas': 'Facturación',
@@ -222,6 +249,7 @@ const TITULOS: Record<string, string> = {
 
 function Encabezado() {
   const { pathname } = useLocation();
+  const base = `/${pathname.split('/')[1] ?? ''}`;
   const hoy = new Date().toLocaleDateString('es-NI', {
     weekday: 'long',
     day: 'numeric',
@@ -231,7 +259,7 @@ function Encabezado() {
   return (
     <header className="px-8 pt-7 pb-5 flex items-end justify-between flex-wrap gap-2">
       <h1 className="text-[26px] font-extrabold tracking-tight text-tinta">
-        {TITULOS[pathname] ?? 'SEVASA Contable'}
+        {TITULOS[base] ?? 'SEVASA Contable'}
       </h1>
       <span className="text-xs text-slate-400 capitalize">{hoy}</span>
     </header>
@@ -239,6 +267,7 @@ function Encabezado() {
 }
 
 function Sistema({ sesion }: { sesion: Session }) {
+  const { pathname } = useLocation();
   return (
     <div className="min-h-screen flex">
       <aside className="w-60 shrink-0 bg-tinta text-white flex flex-col sticky top-0 h-screen">
@@ -257,22 +286,46 @@ function Sistema({ sesion }: { sesion: Session }) {
               <div className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                 {g.titulo}
               </div>
-              {g.items.map((item) => (
-                <NavLink
-                  key={item.ruta}
-                  to={item.ruta}
-                  className={({ isActive }) =>
-                    `w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors mb-0.5 ${
-                      isActive
-                        ? 'bg-verde text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]'
-                        : 'text-white/65 hover:bg-tinta-claro hover:text-white'
-                    }`
-                  }
-                >
-                  <Icono trazos={[...item.trazos]} />
-                  {item.titulo}
-                </NavLink>
-              ))}
+              {g.items.map((item) => {
+                const subs: readonly SubItem[] = 'subs' in item ? item.subs : [];
+                const abierto = pathname.startsWith(item.ruta);
+                return (
+                  <div key={item.ruta}>
+                    <NavLink
+                      to={item.ruta}
+                      className={({ isActive }) =>
+                        `w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors mb-0.5 ${
+                          isActive
+                            ? 'bg-verde text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]'
+                            : 'text-white/65 hover:bg-tinta-claro hover:text-white'
+                        }`
+                      }
+                    >
+                      <Icono trazos={[...item.trazos]} />
+                      {item.titulo}
+                    </NavLink>
+                    {subs.length > 0 && abierto && (
+                      <div className="ml-[26px] border-l border-tinta-borde pl-2 mb-1.5 mt-0.5">
+                        {subs.map((s) => (
+                          <NavLink
+                            key={s.ruta}
+                            to={s.ruta}
+                            className={({ isActive }) =>
+                              `block rounded-md px-2 py-1.5 text-[12px] transition-colors ${
+                                isActive
+                                  ? 'text-white font-semibold bg-tinta-claro'
+                                  : 'text-white/45 hover:text-white'
+                              }`
+                            }
+                          >
+                            {s.titulo}
+                          </NavLink>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </nav>
@@ -296,16 +349,20 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/facturas" element={<Facturas />} />
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/productos" element={<Productos />} />
-            <Route path="/cobranza" element={<Cobranza />} />
-            <Route path="/compras" element={<Compras />} />
+            <Route path="/cobranza" element={<Navigate to="/cobranza/cartera" replace />} />
+            <Route path="/cobranza/:pestana" element={<Cobranza />} />
+            <Route path="/compras" element={<Navigate to="/compras/compras" replace />} />
+            <Route path="/compras/:pestana" element={<Compras />} />
             <Route path="/traslados" element={<Traslados />} />
-            <Route path="/bancos" element={<Bancos />} />
+            <Route path="/bancos" element={<Navigate to="/bancos/movimientos" replace />} />
+            <Route path="/bancos/:pestana" element={<Bancos />} />
             <Route path="/balanza" element={<Balanza />} />
             <Route path="/asientos" element={<Asientos />} />
             <Route path="/mayor" element={<Mayor />} />
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/periodos" element={<Periodos />} />
-            <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/configuracion" element={<Navigate to="/configuracion/sucursales" replace />} />
+            <Route path="/configuracion/:pestana" element={<Configuracion />} />
             <Route path="*" element={<Navigate to="/facturas" replace />} />
           </Routes>
         </main>

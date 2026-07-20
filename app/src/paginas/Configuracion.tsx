@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
 import type { Bodega, ClaveConfig, ControlSerie, Cuenta, Serie, Sucursal, Vendedor } from '../tipos';
 
@@ -13,7 +14,9 @@ const PESTANAS = [
 type Pestana = (typeof PESTANAS)[number]['clave'];
 
 export default function Configuracion() {
-  const [pestana, setPestana] = useState<Pestana>('sucursales');
+  const navigate = useNavigate();
+  const { pestana: parametro } = useParams();
+  const pestana: Pestana = PESTANAS.some((p) => p.clave === parametro) ? (parametro as Pestana) : 'sucursales';
 
   return (
     <div className="max-w-4xl">
@@ -21,7 +24,7 @@ export default function Configuracion() {
         {PESTANAS.map((p) => (
           <button
             key={p.clave}
-            onClick={() => setPestana(p.clave)}
+            onClick={() => navigate(`/configuracion/${p.clave}`)}
             className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition ${
               pestana === p.clave ? 'bg-tinta text-white' : 'text-slate-500 hover:text-tinta'
             }`}
