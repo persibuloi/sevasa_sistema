@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Bodega, ClaveConfig, Serie, Sucursal, Vendedor } from '../tipos';
+import type { Bodega, ClaveConfig, ControlSerie, Serie, Sucursal, Vendedor } from '../tipos';
 
 const PESTANAS = [
   { clave: 'sucursales', titulo: 'Sucursales' },
@@ -336,6 +336,7 @@ function TabSeries() {
   const [filas, setFilas] = useState<Serie[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [aviso, setAviso] = useState('');
+  const [control, setControl] = useState<ControlSerie | null>(null);
   const [form, setForm] = useState<{ editando: string | null; serie: string; sucursal: string; tipo: 'sistema' | 'manual'; prefijo: string; activa: boolean } | null>(null);
 
   const cargar = () => api.get<Serie[]>('/series').then(setFilas).catch(() => setAviso('❌ Error cargando series'));
@@ -356,6 +357,31 @@ function TabSeries() {
       await cargar();
     } catch (err) {
       setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'Error al guardar'}`);
+    }
+  }
+
+  async function verControl(serie: string) {
+    setAviso('');
+    try {
+      setControl(await api.get<ControlSerie>(`/series/${encodeURIComponent(serie)}/control`));
+    } catch (err) {
+      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'Error cargando control'}`);
+    }
+  }
+
+  async function grabarDanada(serie: string) {
+    const numero = prompt(`Nº de la factura de papel dañada (serie ${serie}):`);
+    if (!numero) return;
+    const motivo = prompt('Motivo (queda en bitácora):');
+    if (!motivo) return;
+    setAviso('');
+    try {
+      await api.post('/facturas/manual-anulada', { serie, numero: Number(numero), motivo });
+      setAviso(`✅ Nº ${numero} grabado como anulado — el consecutivo queda completo`);
+      await verControl(serie);
+      await cargar();
+    } catch (err) {
+      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'Error al grabar'}`);
     }
   }
 
@@ -414,11 +440,15 @@ function TabSeries() {
               <tr key={s.serie}>
                 <td className="cifra font-medium">{s.serie}</td>
                 <td className="text-slate-500">{s.sucursal_nombre ?? s.tienda ?? '—'}</td>
-                <td className="text-slate-500 capitalize">{s.tipo}</td>
+                <td className="text-slate-500 capitalize">
+                  {s.tipo}{s.documento !== 'factura' ? ` · ${s.documento === 'recibo' ? 'recibos' : 'NC'}` : ''}
+                </td>
                 <td className="cifra text-slate-500">{s.prefijo}</td>
                 <td className="text-right cifra">{s.ultimo_numero}</td>
                 <td><Estado activa={s.activa} /></td>
-                <td className="text-right">
+                <td className="text-right space-x-3 whitespace-nowrap">
+                  <button onClick={() => void verControl(s.serie)}
+                    className="text-sm font-semibold text-slate-500 hover:text-tinta">Control</button>
                   <button onClick={() => setForm({ editando: s.serie, serie: s.serie, sucursal: s.sucursal ?? '', tipo: s.tipo, prefijo: s.prefijo, activa: s.activa })}
                     className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
                 </td>
@@ -430,6 +460,45 @@ function TabSeries() {
       <p className="mt-3 text-xs text-slate-400">
         El último número solo avanza al emitir facturas — nunca se edita a mano: el consecutivo es sagrado ante la DGI.
       </p>
+
+      {control && (
+        <div className="tarjeta p-5 mt-4">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="font-bold text-tinta">
+              Control de la serie <span className="cifra">{control.serie.serie}</span>
+              {control.serie.tipo === 'manual' && <span className="insignia-ambar ml-2">manual</span>}
+            </h3>
+            <button onClick={() => setControl(null)} className="text-sm text-slate-400 hover:text-tinta">Cerrar ✕</button>
+          </div>
+          <div className="flex flex-wrap gap-6 text-sm mb-3">
+            <span>Emitidas: <strong className="cifra">{control.emitidas}</strong></span>
+            <span>Anuladas: <strong className="cifra">{control.anuladas}</strong></span>
+            <span>Borradores: <strong className="cifra">{control.borradores}</strong></span>
+            <span>
+              Rango grabado: <strong className="cifra">{control.minimo > 0 ? `${control.minimo} – ${control.maximo}` : '—'}</strong>
+            </span>
+          </div>
+          {control.huecos.length === 0 ? (
+            <p className="text-sm text-verde-oscuro font-medium">✅ Consecutivo completo — sin huecos</p>
+          ) : (
+            <div>
+              <p className="text-sm text-rojo font-semibold mb-2">
+                ⚠️ {control.huecos.length} número(s) sin justificar — perseguir el papel:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {control.huecos.map((n) => (
+                  <span key={n} className="insignia-roja cifra">{n}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {control.serie.tipo === 'manual' && (
+            <button onClick={() => void grabarDanada(control.serie.serie)} className="boton-suave mt-4">
+              Grabar Nº de papel dañado como anulado
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

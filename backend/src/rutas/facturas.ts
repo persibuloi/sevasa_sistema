@@ -65,7 +65,7 @@ const SQL_LISTA = `
          COALESCE(su.nombre, s.tienda) AS tienda,
          v.nombre AS vendedor
   FROM facturas f
-  JOIN terceros t ON t.id = f.tercero_id
+  LEFT JOIN terceros t ON t.id = f.tercero_id
   JOIN series s   ON s.serie = f.serie
   LEFT JOIN sucursales su ON su.codigo = s.sucursal
   LEFT JOIN vendedores v  ON v.id = f.vendedor_id`;
@@ -183,6 +183,7 @@ rutasFacturas.delete('/:id', requierePermiso('facturacion', 'editar'), envolver(
 // todo en UNA transacción (si algo falla, no se quema el número)
 rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envolver(async (req, res) => {
   const id = Number(req.params.id);
+  const numeroManual = Number((req.body ?? {}).numero_manual ?? 0);
 
   const previa = await pool.query('SELECT fecha FROM facturas WHERE id = $1', [id]);
   if (previa.rowCount === 0) {
@@ -227,15 +228,36 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
 
     const cliente = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [factura.tercero_id]);
 
-    // Consecutivo: el row-lock serializa la entrega de números (plan §F2)
-    const serie = await bd.query(
-      `UPDATE series SET ultimo_numero = ultimo_numero + 1
-       WHERE serie = $1 AND activa RETURNING ultimo_numero, prefijo`,
+    // Consecutivo con row-lock sobre la serie (plan §F2)
+    const s = await bd.query(
+      'SELECT tipo, prefijo, ultimo_numero, activa FROM series WHERE serie = $1 FOR UPDATE',
       [factura.serie]
     );
-    if (serie.rowCount === 0) return { error: 409, mensaje: `La serie ${factura.serie} no existe o está inactiva` };
-    const numero: number = serie.rows[0].ultimo_numero;
-    const numeroCompleto = `${serie.rows[0].prefijo}${String(numero).padStart(6, '0')}`;
+    if (s.rowCount === 0 || !s.rows[0].activa) {
+      return { error: 409, mensaje: `La serie ${factura.serie} no existe o está inactiva` };
+    }
+    const esManual = s.rows[0].tipo === 'manual';
+    let numero: number;
+    if (esManual) {
+      // Factura de PAPEL: el número lo trae el talonario, se digita
+      if (!Number.isInteger(numeroManual) || numeroManual <= 0) {
+        return { error: 400, mensaje: `La serie ${factura.serie} es manual: indicá el número de la factura de papel` };
+      }
+      const usado = await bd.query('SELECT 1 FROM facturas WHERE serie = $1 AND numero = $2', [
+        factura.serie, numeroManual,
+      ]);
+      if ((usado.rowCount ?? 0) > 0) {
+        return { error: 409, mensaje: `El número ${numeroManual} de la serie ${factura.serie} ya fue grabado` };
+      }
+      numero = numeroManual;
+      await bd.query('UPDATE series SET ultimo_numero = GREATEST(ultimo_numero, $2) WHERE serie = $1', [
+        factura.serie, numero,
+      ]);
+    } else {
+      numero = Number(s.rows[0].ultimo_numero) + 1;
+      await bd.query('UPDATE series SET ultimo_numero = $2 WHERE serie = $1', [factura.serie, numero]);
+    }
+    const numeroCompleto = `${s.rows[0].prefijo}${String(numero).padStart(6, '0')}`;
 
     const cfg = await leerConfig(bd, [
       'cuenta_caja', 'cuenta_cxc', 'cuenta_ventas', 'cuenta_iva',
@@ -303,9 +325,9 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
     const emitida = await bd.query(
       `UPDATE facturas
        SET numero = $2, numero_completo = $3, estado = 'emitida', asiento_id = $4,
-           emitida_en = now(), actualizado_por = $5, actualizado_en = now()
+           origen = $5, emitida_en = now(), actualizado_por = $6, actualizado_en = now()
        WHERE id = $1 RETURNING *`,
-      [id, numero, numeroCompleto, asientoId, req.usuario!.id]
+      [id, numero, numeroCompleto, asientoId, esManual ? 'manual' : 'sistema', req.usuario!.id]
     );
     await registrarBitacora(bd, req.usuario!.id, 'emitir_factura', 'facturas', String(id), {
       numero: numeroCompleto,
@@ -320,6 +342,43 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
     return;
   }
   res.json(resultado.factura);
+}));
+
+// Grabar una factura de PAPEL DAÑADA como anulada (sin cliente ni montos):
+// el consecutivo queda completo ante la DGI sin tocar la contabilidad
+rutasFacturas.post('/manual-anulada', requierePermiso('facturacion', 'crear'), envolver(async (req, res) => {
+  const { serie, numero, motivo } = req.body ?? {};
+  const n = Number(numero);
+  if (!serie || !Number.isInteger(n) || n <= 0 || !motivo) {
+    res.status(400).json({ error: 'serie, numero y motivo son obligatorios' });
+    return;
+  }
+  const resultado = await enTransaccion(async (bd: PoolClient): Promise<{ error?: number; mensaje?: string; factura?: unknown }> => {
+    const s = await bd.query(`SELECT tipo, prefijo FROM series WHERE serie = $1 FOR UPDATE`, [serie]);
+    if (s.rowCount === 0 || s.rows[0].tipo !== 'manual') {
+      return { error: 400, mensaje: `${serie} no es una serie manual` };
+    }
+    const usado = await bd.query('SELECT 1 FROM facturas WHERE serie = $1 AND numero = $2', [serie, n]);
+    if ((usado.rowCount ?? 0) > 0) return { error: 409, mensaje: `El número ${n} ya fue grabado en ${serie}` };
+    const numeroCompleto = `${s.rows[0].prefijo}${String(n).padStart(6, '0')}`;
+    const hoy = new Date().toISOString().slice(0, 10);
+    const f = await bd.query(
+      `INSERT INTO facturas (serie, numero, numero_completo, fecha, tipo_pago, estado, origen, notas, creado_por)
+       VALUES ($1, $2, $3, $4, 'contado', 'anulada', 'manual', $5, $6) RETURNING *`,
+      [serie, n, numeroCompleto, hoy, `Papel dañado/anulado: ${motivo}`, req.usuario!.id]
+    );
+    await bd.query('UPDATE series SET ultimo_numero = GREATEST(ultimo_numero, $2) WHERE serie = $1', [serie, n]);
+    await registrarBitacora(bd, req.usuario!.id, 'grabar_manual_anulada', 'facturas', String(f.rows[0].id), {
+      numero: numeroCompleto,
+      motivo,
+    });
+    return { factura: f.rows[0] };
+  });
+  if (resultado.error) {
+    res.status(resultado.error).json({ error: resultado.mensaje });
+    return;
+  }
+  res.status(201).json(resultado.factura);
 }));
 
 // ANULAR: conserva el número (DGI exige consecutivo completo); contra-asiento hoy

@@ -69,9 +69,20 @@ export interface Serie {
   sucursal: string | null;
   sucursal_nombre?: string | null;
   tipo: 'sistema' | 'manual';
+  documento: 'factura' | 'recibo' | 'nota_credito';
   prefijo: string;
   ultimo_numero: number;
   activa: boolean;
+}
+
+export interface ControlSerie {
+  serie: Serie;
+  emitidas: number;
+  anuladas: number;
+  borradores: number;
+  minimo: number;
+  maximo: number;
+  huecos: number[];
 }
 
 export interface Sucursal {

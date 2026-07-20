@@ -134,11 +134,13 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [terceroId, setTerceroId] = useState('');
   const [vendedorId, setVendedorId] = useState('');
+  const [numeroManual, setNumeroManual] = useState('');
   const [tipoPago, setTipoPago] = useState<'contado' | 'credito'>('contado');
   const [notas, setNotas] = useState('');
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
 
   const soloLectura = factura !== null && factura.estado !== 'borrador';
+  const serieManual = series.find((x) => x.serie === serie)?.tipo === 'manual';
 
   useEffect(() => {
     Promise.all([
@@ -150,12 +152,13 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     ])
       .then(([c, s, cfg, v, p]) => {
         setClientes(c.filter((x) => x.activo));
-        setSeries(s.filter((x) => x.activa && x.tipo === 'sistema'));
+        const deFactura = s.filter((x) => x.activa && x.documento === 'factura');
+        setSeries(deFactura);
         setVendedores(v.filter((x) => x.activo));
         setProductos(p.filter((x) => x.activo));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
-        if (!id && s.length > 0) setSerie(s[0]?.serie ?? '');
+        if (!id) setSerie(deFactura.find((x) => x.tipo === 'sistema')?.serie ?? deFactura[0]?.serie ?? '');
       })
       .catch(() => setAviso('❌ Error cargando catálogos'));
 
@@ -237,14 +240,20 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   }
 
   async function emitir() {
-    if (!confirm('¿Emitir la factura? Tomará número consecutivo y generará su asiento. Después no se puede editar.')) return;
+    const mensaje = serieManual
+      ? `¿Grabar la factura de papel Nº ${numeroManual}? Generará su asiento con la fecha real del documento.`
+      : '¿Emitir la factura? Tomará número consecutivo y generará su asiento. Después no se puede editar.';
+    if (!confirm(mensaje)) return;
     const guardada = await guardarBorrador();
     if (!guardada) return;
     setOcupado(true);
     try {
-      const emitida = await api.post<Factura>(`/facturas/${guardada.id}/emitir`);
+      const emitida = await api.post<Factura>(
+        `/facturas/${guardada.id}/emitir`,
+        serieManual ? { numero_manual: Number(numeroManual) } : {}
+      );
       setFactura(emitida);
-      setAviso(`✅ Emitida como ${emitida.numero_completo}`);
+      setAviso(`✅ ${serieManual ? 'Grabada' : 'Emitida'} como ${emitida.numero_completo}`);
     } catch (e) {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'Error al emitir'}`);
     } finally {
@@ -347,7 +356,9 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 >
                   <option value="">— serie —</option>
                   {series.map((s) => (
-                    <option key={s.serie} value={s.serie}>{s.serie} · {s.tienda}</option>
+                    <option key={s.serie} value={s.serie}>
+                      {s.serie} · {s.sucursal_nombre ?? s.tienda ?? ''}{s.tipo === 'manual' ? ' · MANUAL' : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -369,6 +380,23 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 ))}
               </select>
             </div>
+            {serieManual && !soloLectura && (
+              <div>
+                <label className="etiqueta">Nº de la factura de papel</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={numeroManual}
+                  onChange={(e) => setNumeroManual(e.target.value)}
+                  placeholder="el número impreso en el talonario"
+                  className="entrada cifra"
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Serie manual: usá la fecha REAL del papel; el número no se genera, se digita.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mb-5">
@@ -538,8 +566,12 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
 
           {!soloLectura && (
             <div className="mt-6 space-y-2">
-              <button onClick={() => void emitir()} disabled={!valida || ocupado} className="boton-primario w-full">
-                Emitir factura
+              <button
+                onClick={() => void emitir()}
+                disabled={!valida || ocupado || (serieManual && !(Number(numeroManual) > 0))}
+                className="boton-primario w-full"
+              >
+                {serieManual ? 'Grabar factura manual' : 'Emitir factura'}
               </button>
               <button onClick={() => void guardarBorrador()} disabled={!valida || ocupado} className="boton-suave w-full">
                 Guardar borrador

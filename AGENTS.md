@@ -122,10 +122,11 @@ cd app && npm run build          # typecheck + build
 | F1 núcleo contable | ✅ | Cuentas, períodos, asientos manuales, balanza, mayor (API + pantallas) |
 | F1 importador | ⏳ | Espera catálogo y balanza del sistema viejo en `datos-prueba/` — criterio: cuadre al centavo |
 | F2 facturación | ✅ | Borrador → emitir (row-lock + asiento) → anular. Vendedor opcional |
+| F2 facturas manuales | ✅ | Series tipo 'manual' por sucursal (sin talonarios); el nº del papel se digita al grabar; papel dañado → anulada sin cliente/montos; control de huecos por serie en Configuración |
 | F2 CxC | ✅ | Recibos con aplicaciones, notas de crédito (devolución/rebaja), cartera con antigüedad |
 | Inventario + compras | ✅ | Kardex, costo promedio, OC → compra → CxP; costo de venta automático |
 | Configuración | ✅ | Sucursales, bodegas, vendedores, series, parámetros, clientes, proveedores, productos |
-| F2 pendiente | ⏳ | Facturas manuales (talonarios ya en BD), impresión formato DGI, restyle pantallas F1 |
+| F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
 | F3 bancos/cheques | ⏳ | Incluirá pago a proveedores (CxP) y conciliación |
 | F4 retenciones | ⏳ | 2% efectuadas/recibidas |
 | F5 pólizas | ⏳ | `entrada_poliza` ya prevista en kardex; prorrateo CIF+DAI |

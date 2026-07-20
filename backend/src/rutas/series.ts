@@ -29,6 +29,36 @@ rutasSeries.post('/', requierePermiso('admin', 'editar'), envolver(async (req, r
   res.status(201).json(r.rows[0]);
 }));
 
+// Control de una serie: números grabados, anulados y HUECOS sin justificar
+// (el sistema avisa pero no bloquea — contabilidad persigue el papel faltante)
+rutasSeries.get('/:serie/control', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
+  const s = await pool.query('SELECT * FROM series WHERE serie = $1', [req.params.serie]);
+  if (s.rowCount === 0) {
+    res.status(404).json({ error: 'Serie no existe' });
+    return;
+  }
+  const filas = await pool.query(
+    `SELECT numero, estado FROM facturas WHERE serie = $1 AND numero IS NOT NULL ORDER BY numero`,
+    [req.params.serie]
+  );
+  const usados = new Set(filas.rows.map((f) => Number(f.numero)));
+  const maximo = filas.rows.length > 0 ? Number(filas.rows[filas.rows.length - 1].numero) : 0;
+  const minimo = filas.rows.length > 0 ? Number(filas.rows[0].numero) : 0;
+  const huecos: number[] = [];
+  for (let n = minimo; n <= maximo && huecos.length < 200; n++) {
+    if (!usados.has(n)) huecos.push(n);
+  }
+  res.json({
+    serie: s.rows[0],
+    emitidas: filas.rows.filter((f) => f.estado === 'emitida').length,
+    anuladas: filas.rows.filter((f) => f.estado === 'anulada').length,
+    borradores: filas.rows.filter((f) => f.estado === 'borrador').length,
+    minimo,
+    maximo,
+    huecos,
+  });
+}));
+
 rutasSeries.put('/:serie', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
   const { sucursal, activa } = req.body ?? {};
   const antes = await pool.query('SELECT * FROM series WHERE serie = $1', [req.params.serie]);
