@@ -247,6 +247,47 @@ export interface Traslado {
   valor?: string | number;
 }
 
+export interface CuentaBancaria {
+  id: number;
+  banco: string;
+  nombre: string;
+  numero: string;
+  moneda: 'NIO' | 'USD';
+  cuenta_contable: string;
+  cuenta_contable_nombre?: string;
+  ultimo_cheque: number;
+  saldo_libro?: string | number;
+  activa: boolean;
+}
+
+export interface MovimientoBanco {
+  id: number;
+  cuenta_bancaria_id: number;
+  cuenta_nombre?: string;
+  banco?: string;
+  fecha: string;
+  tipo: 'cheque' | 'transferencia' | 'deposito' | 'debito_bancario' | 'credito_bancario';
+  numero: number | null;
+  beneficiario: string | null;
+  tercero_id: number | null;
+  tercero_nombre?: string | null;
+  concepto: string;
+  monto: string | number;
+  estado: 'emitido' | 'anulado';
+  conciliado: boolean;
+}
+
+export interface CompraPendiente {
+  id: number;
+  numero_documento: string;
+  fecha: string;
+  total: string | number;
+  tercero_id: number;
+  proveedor: string;
+  pagado: string | number;
+  saldo: string | number;
+}
+
 export interface FacturaPendiente {
   id: number;
   numero_completo: string;

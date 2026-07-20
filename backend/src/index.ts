@@ -19,6 +19,7 @@ import { rutasOrdenes } from './rutas/ordenes';
 import { rutasProveedores } from './rutas/proveedores';
 import { rutasCxc } from './rutas/cxc';
 import { rutasTraslados } from './rutas/traslados';
+import { rutasBancos } from './rutas/bancos';
 
 const app = express();
 app.use(cors());
@@ -51,6 +52,7 @@ app.use('/api/ordenes', autenticar, rutasOrdenes);
 app.use('/api/proveedores', autenticar, rutasProveedores);
 app.use('/api/cxc', autenticar, rutasCxc); // cartera, recibos, notas de crédito
 app.use('/api/traslados', autenticar, rutasTraslados);
+app.use('/api/bancos', autenticar, rutasBancos);
 app.use('/api', autenticar, rutasReportes); // /api/balanza, /api/mayor/:cuenta
 
 // Traducción de errores de BD a respuestas claras (los triggers hablan español)

@@ -7,6 +7,7 @@ import Productos from './paginas/Productos';
 import Compras from './paginas/Compras';
 import Cobranza from './paginas/Cobranza';
 import Traslados from './paginas/Traslados';
+import Bancos from './paginas/Bancos';
 import Configuracion from './paginas/Configuracion';
 import Catalogo from './paginas/Catalogo';
 import Asientos from './paginas/Asientos';
@@ -175,6 +176,12 @@ const GRUPOS = [
     ],
   },
   {
+    titulo: 'Tesorería',
+    items: [
+      { clave: 'bancos', titulo: 'Bancos y cheques', trazos: ['M3 21h18', 'M4 18h16', 'M5 18V9M9.5 18V9M14.5 18V9M19 18V9', 'M2 9l10-6 10 6z'] },
+    ],
+  },
+  {
     titulo: 'Contabilidad',
     items: [
       { clave: 'balanza', titulo: 'Balanza', trazos: ['M12 3v18', 'M8 21h8', 'M4 7h16', 'M6 7l-2.5 6a3 3 0 0 0 5 0L6 7', 'M18 7l-2.5 6a3 3 0 0 0 5 0L18 7'] },
@@ -201,6 +208,7 @@ const TITULOS: Record<Pagina, string> = {
   compras: 'Compras',
   cobranza: 'Cobranza y cartera',
   traslados: 'Traslados entre bodegas',
+  bancos: 'Bancos y cheques',
   balanza: 'Balanza de comprobación',
   asientos: 'Asientos contables',
   mayor: 'Libro mayor',
@@ -280,6 +288,7 @@ function Sistema({ sesion }: { sesion: Session }) {
           {pagina === 'compras' && <Compras />}
           {pagina === 'cobranza' && <Cobranza />}
           {pagina === 'traslados' && <Traslados />}
+          {pagina === 'bancos' && <Bancos />}
           {pagina === 'balanza' && <Balanza />}
           {pagina === 'asientos' && <Asientos />}
           {pagina === 'mayor' && <Mayor />}

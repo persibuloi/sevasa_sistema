@@ -128,7 +128,7 @@ cd app && npm run build          # typecheck + build
 | Configuración | ✅ | Sucursales (con cuenta de caja propia), bodegas, vendedores (amarrados a tienda), series (número inicial / talonario desde-Nº), parámetros, clientes, proveedores, productos |
 | Traslados | ✅ | Entre bodegas, sin asiento (solo kardex doble al promedio); exige existencia en origen; anulación regresa la mercadería. Flujo: se recibe en bodega central → traslado a tiendas. Filtro parametrizable: al facturar solo se ven productos con existencia en la bodega de la tienda (`ventas_filtrar_por_bodega`) |
 | F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
-| F3 bancos/cheques | ⏳ | Incluirá pago a proveedores (CxP) y conciliación |
+| F3 bancos/cheques ✅ | ✅ | Cuentas bancarias (chequera con último cheque inicializable), cheques/transferencias/depósitos/débitos-créditos bancarios con asiento automático, pago a proveedores aplicado a compras (baja CxP con validación de saldo), anulación por contra-asiento, conciliación manual con flotante. Pendiente F3b: importar estado de cuenta, multimoneda USD plena, impresión de cheque |
 | F4 retenciones | ⏳ | 2% efectuadas/recibidas |
 | F5 pólizas | ⏳ | `entrada_poliza` ya prevista en kardex; prorrateo CIF+DAI |
 | F6 estados financieros | ⏳ | Balance, resultados, cierre — reusar diseño Finanzas Sevasa |
