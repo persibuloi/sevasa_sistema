@@ -397,6 +397,29 @@ describe('pólizas de importación (F5)', () => {
     expect(porProv.get(2)).toBeCloseTo(1000, 2);
     expect(porProv.get(prov2)).toBeCloseTo(500, 2);
   }, 60_000);
+
+  it('la póliza aparece como pagable y el pago baja su saldo', async () => {
+    // El proveedor 2 debe tener la POL-MULTI con saldo 1000
+    const antes = await request(app).get('/api/bancos/cxp/2');
+    const pol = (antes.body as Array<{ tipo: string; id: number; saldo: string }>).find((f) => f.tipo === 'poliza');
+    expect(pol).toBeTruthy();
+    expect(Number(pol!.saldo)).toBeCloseTo(1000, 2);
+    // Cheque de 400 aplicado a la póliza
+    const pago = await request(app).post('/api/bancos/movimientos').send({
+      cuenta_bancaria_id: 1, tipo: 'cheque', fecha: '2026-07-14', concepto: 'abono póliza', tercero_id: 2,
+      aplicaciones: [{ poliza_id: pol!.id, monto: 400 }],
+    });
+    expect(pago.status).toBe(201);
+    const despues = await request(app).get('/api/bancos/cxp/2');
+    const pol2 = (despues.body as Array<{ tipo: string; id: number; saldo: string }>).find((f) => f.tipo === 'poliza');
+    expect(Number(pol2!.saldo)).toBeCloseTo(600, 2);
+    // Sobrepago repitiendo la póliza → rechazado
+    const sobre = await request(app).post('/api/bancos/movimientos').send({
+      cuenta_bancaria_id: 1, tipo: 'cheque', fecha: '2026-07-14', concepto: 'sobrepago póliza', tercero_id: 2,
+      aplicaciones: [{ poliza_id: pol!.id, monto: 400 }, { poliza_id: pol!.id, monto: 400 }],
+    });
+    expect(sobre.status).toBe(400);
+  }, 60_000);
 });
 
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {

@@ -126,14 +126,49 @@ const SQL_SALDOS_CXP = `
   ) ret ON ret.compra_id = c.id
   WHERE c.estado = 'registrada' AND c.tipo_pago = 'credito'`;
 
+// Pólizas liquidadas: el FOB de cada proveedor (líneas suyas; sin proveedor
+// de línea cae al del encabezado) menos lo ya pagado por ese proveedor
+const SQL_SALDOS_POLIZAS = `
+  SELECT p.id, p.numero AS numero_documento, p.fecha,
+         fob.tercero_id, t.nombre AS proveedor, t.terminos_dias,
+         fob.total, COALESCE(pg.pagado, 0) AS pagado,
+         (fob.total - COALESCE(pg.pagado, 0)) AS saldo
+  FROM polizas p
+  JOIN LATERAL (
+    SELECT COALESCE(pl.tercero_id, p.tercero_id) AS tercero_id,
+           SUM(ROUND(pl.cantidad * pl.fob_unitario * p.tipo_cambio, 2)) AS total
+    FROM poliza_lineas pl WHERE pl.poliza_id = p.id
+    GROUP BY COALESCE(pl.tercero_id, p.tercero_id)
+  ) fob ON fob.tercero_id IS NOT NULL
+  JOIN terceros t ON t.id = fob.tercero_id
+  LEFT JOIN (
+    SELECT pa.poliza_id, mb.tercero_id, SUM(pa.monto) AS pagado
+    FROM pago_aplicaciones pa
+    JOIN movimientos_banco mb ON mb.id = pa.movimiento_banco_id AND mb.estado = 'emitido'
+    WHERE pa.poliza_id IS NOT NULL
+    GROUP BY pa.poliza_id, mb.tercero_id
+  ) pg ON pg.poliza_id = p.id AND pg.tercero_id = fob.tercero_id
+  WHERE p.estado = 'liquidada'`;
+
 rutasBancos.get('/cxp', requierePermiso('bancos', 'ver'), envolver(async (_req, res) => {
-  const r = await pool.query(`${SQL_SALDOS_CXP} ORDER BY t.nombre, c.fecha`);
-  res.json(r.rows.filter((f) => Number(f.saldo) > 0.009));
+  const compras = await pool.query(`${SQL_SALDOS_CXP} ORDER BY t.nombre, c.fecha`);
+  const polizas = await pool.query(`${SQL_SALDOS_POLIZAS} ORDER BY t.nombre, p.fecha`);
+  res.json([
+    ...compras.rows.map((f) => ({ ...f, tipo: 'compra' })),
+    ...polizas.rows.map((f) => ({ ...f, tipo: 'poliza', numero_documento: `POL ${f.numero_documento}` })),
+  ].filter((f) => Number(f.saldo) > 0.009));
 }));
 
 rutasBancos.get('/cxp/:terceroId', requierePermiso('bancos', 'ver'), envolver(async (req, res) => {
-  const r = await pool.query(`${SQL_SALDOS_CXP} AND c.tercero_id = $1 ORDER BY c.fecha`, [req.params.terceroId]);
-  res.json(r.rows.filter((f) => Number(f.saldo) > 0.009));
+  const compras = await pool.query(`${SQL_SALDOS_CXP} AND c.tercero_id = $1 ORDER BY c.fecha`, [req.params.terceroId]);
+  const polizas = await pool.query(
+    `SELECT * FROM (${SQL_SALDOS_POLIZAS}) s WHERE s.tercero_id = $1 ORDER BY s.fecha`,
+    [req.params.terceroId]
+  );
+  res.json([
+    ...compras.rows.map((f) => ({ ...f, tipo: 'compra' })),
+    ...polizas.rows.map((f) => ({ ...f, tipo: 'poliza', numero_documento: `POL ${f.numero_documento}` })),
+  ].filter((f) => Number(f.saldo) > 0.009));
 }));
 
 /* --------------------------------------------------------------- movimientos */
@@ -173,19 +208,23 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
     res.status(400).json({ error: 'El pago a proveedor necesita tercero_id' });
     return;
   }
-  // Agregar por compra ANTES de validar: repetir la misma compra se SUMA
+  // Agregar por documento ANTES de validar: repetir el mismo se SUMA
   // — el pago total jamás supera la deuda (auditoría P0)
   const porCompra = new Map<number, number>();
+  const porPoliza = new Map<number, number>();
   let montoCent = 0;
   if (esPagoProveedor) {
-    for (const a of aplicaciones as Array<{ compra_id: number; monto: number }>) {
+    for (const a of aplicaciones as Array<{ compra_id?: number; poliza_id?: number; monto: number }>) {
       const c = aCentavos(a.monto);
-      if (!a.compra_id || Number.isNaN(c) || c <= 0) {
-        res.status(400).json({ error: 'Cada aplicación necesita compra_id y monto > 0' });
+      const esCompra = Boolean(a.compra_id);
+      const esPoliza = Boolean(a.poliza_id);
+      if ((esCompra === esPoliza) || Number.isNaN(c) || c <= 0) {
+        res.status(400).json({ error: 'Cada aplicación necesita compra_id O poliza_id, y monto > 0' });
         return;
       }
       montoCent += c;
-      porCompra.set(Number(a.compra_id), (porCompra.get(Number(a.compra_id)) ?? 0) + c);
+      if (esCompra) porCompra.set(Number(a.compra_id), (porCompra.get(Number(a.compra_id)) ?? 0) + c);
+      else porPoliza.set(Number(a.poliza_id), (porPoliza.get(Number(a.poliza_id)) ?? 0) + c);
     }
   } else {
     montoCent = aCentavos(monto);
@@ -212,7 +251,7 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
       return { error: 400, mensaje: 'Cuentas en USD bloqueadas hasta implementar multimoneda' };
     }
 
-    // Validar el TOTAL aplicado a cada compra (ya agregado), con lock
+    // Validar el TOTAL aplicado a cada documento (ya agregado), con lock
     if (esPagoProveedor) {
       for (const [compraId, montoCentCompra] of porCompra) {
         const compra = await bd.query(`${SQL_SALDOS_CXP} AND c.id = $1 FOR UPDATE OF c`, [compraId]);
@@ -224,6 +263,22 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
           return {
             error: 400,
             mensaje: `A la compra ${compra.rows[0].numero_documento} solo se le deben ${Number(compra.rows[0].saldo).toFixed(2)}`,
+          };
+        }
+      }
+      for (const [polizaId, montoCentPoliza] of porPoliza) {
+        await bd.query('SELECT id FROM polizas WHERE id = $1 FOR UPDATE', [polizaId]);  // lock contra pagos simultáneos
+        const pz = await bd.query(
+          `SELECT * FROM (${SQL_SALDOS_POLIZAS}) s WHERE s.id = $1 AND s.tercero_id = $2`,
+          [polizaId, tercero_id]
+        );
+        if (pz.rowCount === 0) {
+          return { error: 400, mensaje: `La póliza ${polizaId} no está liquidada o no tiene FOB de este proveedor` };
+        }
+        if (montoCentPoliza > Math.round(Number(pz.rows[0].saldo) * 100) + 1) {
+          return {
+            error: 400,
+            mensaje: `De la ${pz.rows[0].numero_documento} solo se le deben ${Number(pz.rows[0].saldo).toFixed(2)} a este proveedor`,
           };
         }
       }
@@ -288,6 +343,12 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
         await bd.query(
           `INSERT INTO pago_aplicaciones (movimiento_banco_id, compra_id, monto) VALUES ($1, $2, $3)`,
           [movimiento.rows[0].id, compraId, montoCentCompra / 100]
+        );
+      }
+      for (const [polizaId, montoCentPoliza] of porPoliza) {
+        await bd.query(
+          `INSERT INTO pago_aplicaciones (movimiento_banco_id, poliza_id, monto) VALUES ($1, $2, $3)`,
+          [movimiento.rows[0].id, polizaId, montoCentPoliza / 100]
         );
       }
     }

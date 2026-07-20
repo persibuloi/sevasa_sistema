@@ -169,7 +169,7 @@ function FormMovimiento({ cuentas, alEmitir }: { cuentas: CuentaBancaria[]; alEm
   const [proveedores, setProveedores] = useState<Cliente[]>([]);
   const [terceroId, setTerceroId] = useState('');
   const [pendientes, setPendientes] = useState<CompraPendiente[]>([]);
-  const [montos, setMontos] = useState<Record<number, string>>({});
+  const [montos, setMontos] = useState<Record<string, string>>({});
   const [monto, setMonto] = useState('');
   const [contrapartida, setContrapartida] = useState('');
   const [cuentasContables, setCuentasContables] = useState<Cuenta[]>([]);
@@ -218,8 +218,12 @@ function FormMovimiento({ cuentas, alEmitir }: { cuentas: CuentaBancaria[]; alEm
         contrapartida: pagoProveedor ? undefined : contrapartida,
         aplicaciones: pagoProveedor
           ? pendientes
-              .filter((c) => Number(montos[c.id] || 0) > 0)
-              .map((c) => ({ compra_id: c.id, monto: Number(montos[c.id]) }))
+              .filter((c) => Number(montos[`${c.tipo ?? 'compra'}-${c.id}`] || 0) > 0)
+              .map((c) =>
+                c.tipo === 'poliza'
+                  ? { poliza_id: c.id, monto: Number(montos[`poliza-${c.id}`]) }
+                  : { compra_id: c.id, monto: Number(montos[`compra-${c.id}`]) }
+              )
           : undefined,
       });
       alEmitir(`✅ ${nombreTipo(m.tipo, m.numero)} emitido por C$ ${montoSiempre(m.monto)}`);
@@ -295,22 +299,28 @@ function FormMovimiento({ cuentas, alEmitir }: { cuentas: CuentaBancaria[]; alEm
                 </tr>
               </thead>
               <tbody>
-                {pendientes.map((c) => (
-                  <tr key={c.id}>
-                    <td className="py-1 cifra">{c.numero_documento}</td>
-                    <td className="py-1">{c.fecha.slice(0, 10)}</td>
-                    <td className="py-1 text-right cifra">{montoSiempre(c.saldo)}</td>
-                    <td className="py-1 pl-3">
-                      <div className="flex gap-1 items-center">
-                        <input type="number" min="0" step="0.01" value={montos[c.id] ?? ''}
-                          onChange={(e) => setMontos({ ...montos, [c.id]: e.target.value })}
-                          placeholder="0.00" className="entrada text-right" />
-                        <button type="button" onClick={() => setMontos({ ...montos, [c.id]: String(c.saldo) })}
-                          className="text-xs font-semibold text-verde hover:text-verde-oscuro">todo</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {pendientes.map((c) => {
+                  const clave = `${c.tipo ?? 'compra'}-${c.id}`;
+                  return (
+                    <tr key={clave}>
+                      <td className="py-1 cifra">
+                        {c.numero_documento}
+                        {c.tipo === 'poliza' && <span className="insignia-ambar ml-2">póliza</span>}
+                      </td>
+                      <td className="py-1">{c.fecha.slice(0, 10)}</td>
+                      <td className="py-1 text-right cifra">{montoSiempre(c.saldo)}</td>
+                      <td className="py-1 pl-3">
+                        <div className="flex gap-1 items-center">
+                          <input type="number" min="0" step="0.01" value={montos[clave] ?? ''}
+                            onChange={(e) => setMontos({ ...montos, [clave]: e.target.value })}
+                            placeholder="0.00" className="entrada text-right" />
+                          <button type="button" onClick={() => setMontos({ ...montos, [clave]: String(c.saldo) })}
+                            className="text-xs font-semibold text-verde hover:text-verde-oscuro">todo</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ))}

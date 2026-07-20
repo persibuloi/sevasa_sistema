@@ -319,6 +319,7 @@ export interface CompraPendiente {
   proveedor: string;
   pagado: string | number;
   saldo: string | number;
+  tipo?: 'compra' | 'poliza';
 }
 
 export interface PolizaLinea {
