@@ -150,6 +150,21 @@ facturador, comprador, consulta.
   por_pagina, respuesta {facturas, total}). Replicar el patrón en compras/
   recibos cuando crezcan.
 
+## Deploy (Vercel — preparado, AÚN NO PUBLICADO)
+
+- `api/index.ts` exporta la app de Express como función serverless; `vercel.json`
+  reenvía `/api/*` a la función y el resto a `index.html` (SPA). El
+  `package.json` de la raíz trae las dependencias runtime de la función.
+- Variables de entorno requeridas en Vercel:
+  `DATABASE_URL` (pooler :6543) · `SUPABASE_URL` · `SUPABASE_ANON_KEY` ·
+  `CORS_ORIGEN` (OBLIGATORIA: dominio del deploy — sin ella el server no
+  arranca en producción) · `PG_POOL_MAX=3` (serverless: muchas instancias
+  chicas) · `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` (build del front).
+- Flujo: `vercel login` → `vercel link` → cargar variables → `vercel`
+  (preview = staging privado con protección de acceso) → probar E2E →
+  `vercel --prod` SOLO cuando el usuario lo ordene.
+- La salida operativa definitiva sigue el paralelo de 1-2 meses del plan (§F7).
+
 ## Comandos
 
 ```

@@ -23,6 +23,9 @@ export const pool = new Pool({
   connectionString: url,
   // Supabase exige TLS; en Postgres local (docker) no hay certificado
   ssl: url.includes('supabase.co') ? { rejectUnauthorized: false } : undefined,
+  // En pruebas, el search_path viaja como parámetro de arranque de la
+  // conexión (nada de queries extra en el pool → sin deprecación de pg)
+  options: esquemaPruebas ? `-c search_path=${esquemaPruebas}` : undefined,
   // 20-30 usuarios concurrentes: el pooler de Supabase multiplexa por
   // transacción, así que 10 conexiones del backend rinden de sobra.
   // El valor se valida: entero entre 1 y 50, si no → 10.
@@ -33,14 +36,6 @@ export const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });
-
-if (esquemaPruebas) {
-  // Cada conexión nueva del pool apunta al esquema de pruebas; el cliente pg
-  // serializa sus consultas, así que este SET siempre corre primero
-  pool.on('connect', (cliente) => {
-    void cliente.query(`SET search_path TO ${esquemaPruebas}`);
-  });
-}
 
 /** Ejecuta fn dentro de una transacción; rollback automático si lanza.
  *  TODA escritura contable (documento + asiento + movimientos) pasa por aquí. */

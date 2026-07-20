@@ -29,9 +29,10 @@ function config() {
  *  llaves legacy y nuevas sin manejar secretos de firma), carga el usuario
  *  y sus roles desde Postgres, y lo deja en req.usuario. */
 export const autenticar: RequestHandler = (req, res, next) => {
-  // Atajo EXCLUSIVO de la suite de pruebas: solo cuando el backend entero
-  // apunta a un esquema temporal (ESQUEMA_PRUEBAS) y nunca en producción
-  if (process.env.ESQUEMA_PRUEBAS && process.env.NODE_ENV !== 'production') {
+  // Atajo EXCLUSIVO de la suite de pruebas: exige AMBAS condiciones —
+  // el backend apuntando a un esquema temporal Y NODE_ENV=test (Vitest lo
+  // define). En cualquier otro entorno este bloque es inalcanzable.
+  if (process.env.ESQUEMA_PRUEBAS && process.env.NODE_ENV === 'test') {
     req.usuario = {
       id: '00000000-0000-0000-0000-000000000001',
       email: 'pruebas@sevasa.local',
