@@ -337,7 +337,7 @@ function TabSeries() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [aviso, setAviso] = useState('');
   const [control, setControl] = useState<ControlSerie | null>(null);
-  const [form, setForm] = useState<{ editando: string | null; serie: string; sucursal: string; tipo: 'sistema' | 'manual'; prefijo: string; activa: boolean } | null>(null);
+  const [form, setForm] = useState<{ editando: string | null; serie: string; sucursal: string; tipo: 'sistema' | 'manual'; prefijo: string; ultimo_numero: string; activa: boolean } | null>(null);
 
   const cargar = () => api.get<Serie[]>('/series').then(setFilas).catch(() => setAviso('❌ Error cargando series'));
   useEffect(() => {
@@ -350,8 +350,12 @@ function TabSeries() {
     if (!form) return;
     setAviso('');
     try {
-      if (form.editando === null) await api.post('/series', form);
-      else await api.put(`/series/${form.editando}`, { sucursal: form.sucursal, activa: form.activa });
+      if (form.editando === null) await api.post('/series', { ...form, ultimo_numero: Number(form.ultimo_numero || 0) });
+      else await api.put(`/series/${form.editando}`, {
+        sucursal: form.sucursal,
+        activa: form.activa,
+        ultimo_numero: form.ultimo_numero === '' ? undefined : Number(form.ultimo_numero),
+      });
       setAviso(`✅ Serie ${form.serie} guardada`);
       setForm(null);
       await cargar();
@@ -388,7 +392,7 @@ function TabSeries() {
   return (
     <div>
       <div className="flex justify-end mb-3">
-        <button onClick={() => setForm({ editando: null, serie: '', sucursal: '', tipo: 'sistema', prefijo: '', activa: true })} className="boton-primario">
+        <button onClick={() => setForm({ editando: null, serie: '', sucursal: '', tipo: 'sistema', prefijo: '', ultimo_numero: '0', activa: true })} className="boton-primario">
           + Nueva serie
         </button>
       </div>
@@ -424,6 +428,16 @@ function TabSeries() {
               <input required disabled={form.editando !== null} value={form.prefijo} placeholder="A-CEN-"
                 onChange={(e) => setForm({ ...form, prefijo: e.target.value.toUpperCase() })} className="entrada cifra" />
             </div>
+            <div>
+              <label className="etiqueta">Último número usado</label>
+              <input type="number" min="0" step="1" value={form.ultimo_numero}
+                onChange={(e) => setForm({ ...form, ultimo_numero: e.target.value })}
+                className="entrada text-right cifra" />
+              <p className="mt-1 text-[11px] text-slate-400">
+                El siguiente emitido será este + 1. Para continuar el consecutivo del
+                sistema viejo, poné aquí el último número que se usó. Nunca baja de lo ya grabado.
+              </p>
+            </div>
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input type="checkbox" checked={form.activa} onChange={(e) => setForm({ ...form, activa: e.target.checked })} />
               Activa
@@ -449,7 +463,7 @@ function TabSeries() {
                 <td className="text-right space-x-3 whitespace-nowrap">
                   <button onClick={() => void verControl(s.serie)}
                     className="text-sm font-semibold text-slate-500 hover:text-tinta">Control</button>
-                  <button onClick={() => setForm({ editando: s.serie, serie: s.serie, sucursal: s.sucursal ?? '', tipo: s.tipo, prefijo: s.prefijo, activa: s.activa })}
+                  <button onClick={() => setForm({ editando: s.serie, serie: s.serie, sucursal: s.sucursal ?? '', tipo: s.tipo, prefijo: s.prefijo, ultimo_numero: String(s.ultimo_numero), activa: s.activa })}
                     className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
                 </td>
               </tr>
