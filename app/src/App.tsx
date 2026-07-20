@@ -8,6 +8,7 @@ import Productos from './paginas/Productos';
 import Cobranza from './paginas/Cobranza';
 import Compras from './paginas/Compras';
 import Traslados from './paginas/Traslados';
+import Polizas from './paginas/Polizas';
 import Bancos from './paginas/Bancos';
 import Catalogo from './paginas/Catalogo';
 import Asientos from './paginas/Asientos';
@@ -189,6 +190,7 @@ const GRUPOS = [
           { ruta: '/compras/proveedores', titulo: 'Proveedores' },
         ] },
       { ruta: '/traslados', titulo: 'Traslados', trazos: ['M17 3l4 4-4 4', 'M21 7H8', 'M7 21l-4-4 4-4', 'M3 17h13'] },
+      { ruta: '/polizas', titulo: 'Pólizas import.', trazos: ['M2 12h20', 'M12 2a15 15 0 0 1 0 20', 'M12 2a15 15 0 0 0 0 20', 'M12 2v20'] },
     ],
   },
   {
@@ -240,6 +242,7 @@ const TITULOS: Record<string, string> = {
   '/cobranza': 'Cobranza y cartera',
   '/compras': 'Compras',
   '/traslados': 'Traslados entre bodegas',
+  '/polizas': 'Pólizas de importación',
   '/bancos': 'Bancos y cheques',
   '/balanza': 'Balanza de comprobación',
   '/asientos': 'Asientos contables',
@@ -357,6 +360,7 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/compras" element={<Navigate to="/compras/compras" replace />} />
             <Route path="/compras/:pestana" element={<Compras />} />
             <Route path="/traslados" element={<Traslados />} />
+            <Route path="/polizas" element={<Polizas />} />
             <Route path="/bancos" element={<Navigate to="/bancos/movimientos" replace />} />
             <Route path="/bancos/:pestana" element={<Bancos />} />
             <Route path="/balanza" element={<Balanza />} />

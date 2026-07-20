@@ -196,7 +196,7 @@ cd app && npm run build          # typecheck + build
 | F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
 | F3 bancos/cheques ✅ | ✅ | Cuentas bancarias (chequera con último cheque inicializable), cheques/transferencias/depósitos/débitos-créditos bancarios con asiento automático, pago a proveedores aplicado a compras (baja CxP con validación de saldo), anulación por contra-asiento, conciliación manual con flotante. Pendiente F3b: importar estado de cuenta, multimoneda USD plena, impresión de cheque |
 | F4 retenciones ✅ | ✅ | Tipos configurables (tasa/base/cuenta/aplica); retención EFECTUADA en la compra (acredita su cuenta, baja CxP al neto — SQL_SALDOS_CXP ya resta retenciones); RECIBIDA en recibo (disponible, SEVASA exento por gran contribuyente); reporte DGI efectuadas/recibidas por tercero. compra_retenciones/recibo_retenciones INSERT-only |
-| F5 pólizas | ⏳ | `entrada_poliza` ya prevista en kardex; prorrateo CIF+DAI |
+| F5 pólizas ✅ | ✅ | Importación: prorrateo de gastos (flete/seguro/DAI/ISC/agencia) al costo por valor/peso/unidades con reparto de centavos exacto; IVA de importación aparte (acreditable); liquidar → asiento de nacionalización + entrada al inventario a costo puesto en bodega (kardex entrada_poliza + promedio); anular espejo. Motor puro en `polizas-calculo.ts`, preview en vivo vía POST /polizas/calcular |
 | F6 estados financieros | ⏳ | Balance, resultados, cierre — reusar diseño Finanzas Sevasa |
 
 Decisiones clave registradas en el plan: inventario perpetuo con costo promedio (§F2),

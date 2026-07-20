@@ -321,6 +321,58 @@ export interface CompraPendiente {
   saldo: string | number;
 }
 
+export interface PolizaLinea {
+  id?: number;
+  producto_id: number;
+  producto_codigo?: string;
+  producto_nombre?: string;
+  unidad?: string;
+  cantidad: string | number;
+  fob_unitario: string | number;
+  peso: string | number;
+  costo_unitario?: string | number;
+  total?: string | number;
+}
+
+export interface PolizaGasto {
+  id?: number;
+  concepto: string;
+  monto: string | number;
+  base: 'valor' | 'peso' | 'unidades';
+  es_iva: boolean;
+  cuenta_contable: string;
+  cuenta_nombre?: string;
+}
+
+export interface Poliza {
+  id: number;
+  numero: string;
+  tercero_id: number | null;
+  proveedor?: string | null;
+  fecha: string;
+  bodega: string;
+  bodega_nombre?: string;
+  moneda: 'NIO' | 'USD';
+  tipo_cambio: string | number;
+  estado: 'borrador' | 'liquidada' | 'anulada';
+  fob: string | number;
+  gastos: string | number;
+  iva: string | number;
+  total_inventario: string | number;
+  notas: string | null;
+  productos?: number;
+  lineas?: PolizaLinea[];
+  gastos_lista?: PolizaGasto[];
+}
+
+export interface CalculoPoliza {
+  fob: number;
+  gastos: number;
+  iva: number;
+  total_inventario: number;
+  lineas: Array<{ producto_id: number; costo_unitario: number; total: number }>;
+}
+
 export interface FacturaPendiente {
   id: number;
   numero_completo: string;

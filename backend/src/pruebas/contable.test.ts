@@ -332,6 +332,46 @@ describe('retenciones (F4)', () => {
   }, 60_000);
 });
 
+describe('pólizas de importación (F5)', () => {
+  it('liquida una póliza: prorratea el costo, entra al inventario y el asiento cuadra', async () => {
+    // 2 productos; FOB en USD × TC 36; flete 3600 por peso, IVA 1000 acreditable
+    const p2 = await pool.query(
+      `INSERT INTO productos (codigo, nombre, unidad, precio_venta) VALUES ('PR-2', 'Producto dos', 'unidad', 50) RETURNING id`
+    );
+    const prod2 = Number(p2.rows[0].id);
+    const b = await request(app).post('/api/polizas').send({
+      numero: 'POL-001', fecha: '2026-07-09', bodega: 'BOD-CEN', moneda: 'USD', tipo_cambio: 36,
+      lineas: [
+        { producto_id: 1, cantidad: 10, fob_unitario: 5, peso: 100 },   // FOB 50 USD → 1800 NIO, peso 100
+        { producto_id: prod2, cantidad: 10, fob_unitario: 5, peso: 300 }, // FOB 50 USD → 1800 NIO, peso 300
+      ],
+      gastos: [
+        { concepto: 'Flete', monto: 4000, base: 'peso', es_iva: false, cuenta_contable: '2-01' },
+        { concepto: 'IVA importación', monto: 1000, base: 'valor', es_iva: true, cuenta_contable: '2-01' },
+      ],
+    });
+    expect(b.status).toBe(201);
+    const liq = await request(app).post(`/api/polizas/${b.body.id}/liquidar`).send({});
+    expect(liq.status).toBe(200);
+    // FOB total 3600; flete 4000 por peso (100:300 → 1000 y 3000); IVA 1000 aparte
+    expect(Number(liq.body.fob)).toBeCloseTo(3600, 2);
+    expect(Number(liq.body.gastos)).toBeCloseTo(4000, 2);
+    expect(Number(liq.body.iva)).toBeCloseTo(1000, 2);
+    expect(Number(liq.body.total_inventario)).toBeCloseTo(7600, 2);  // 3600 + 4000
+
+    const movs = await pool.query('SELECT COALESCE(SUM(debito - credito),0) AS d FROM movimientos WHERE asiento_id = $1', [liq.body.asiento_id]);
+    expect(Number(movs.rows[0].d)).toBeCloseTo(0, 2);  // asiento cuadra
+
+    // Producto 2 recibió 3000 de flete (peso 300 de 400) + 1800 FOB = 4800 / 10 = 480 c/u
+    const det = await pool.query(`SELECT producto_id, costo_unitario FROM poliza_lineas WHERE poliza_id = $1 ORDER BY id`, [b.body.id]);
+    const l2 = det.rows.find((r) => Number(r.producto_id) === prod2);
+    expect(Number(l2.costo_unitario)).toBeCloseTo(480, 2);  // (1800 + 3000) / 10
+    // Entró al inventario de la bodega
+    const e = await pool.query(`SELECT cantidad FROM existencias WHERE producto_id = $1 AND bodega = 'BOD-CEN'`, [prod2]);
+    expect(Number(e.rows[0].cantidad)).toBe(10);
+  }, 60_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;
