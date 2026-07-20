@@ -198,6 +198,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [tipoPago, setTipoPago] = useState<'contado' | 'credito'>('contado');
   const [notas, setNotas] = useState('');
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
+  const [modalLinea, setModalLinea] = useState<number | null>(null);
 
   const soloLectura = factura !== null && factura.estado !== 'borrador';
   const serieElegida = series.find((x) => x.serie === serie);
@@ -593,36 +594,32 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 return (
                   <tr key={i}>
                     <td className="py-1 pr-2">
-                      <select
-                        value={l.productoId}
-                        disabled={soloLectura}
-                        onChange={(e) => {
-                          const producto = productos.find((p) => String(p.id) === e.target.value);
-                          setLineas(
-                            lineas.map((x, j) =>
-                              j === i
-                                ? producto
-                                  ? {
-                                      ...x,
-                                      productoId: e.target.value,
-                                      descripcion: producto.nombre,
-                                      precio: String(producto.precio_venta),
-                                    }
-                                  : { ...x, productoId: '' }
-                                : x
-                            )
-                          );
-                        }}
-                        className="entrada"
-                      >
-                        <option value="">— libre —</option>
-                        {productosVisibles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.codigo} · {p.nombre}
-                            {filtrarPorBodega && bodegaVenta ? ` · ${Number(p.existencia_bodega ?? 0)}` : ''}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const prod = productos.find((p) => String(p.id) === l.productoId);
+                        const disp = Number(prod?.existencia_bodega ?? 0);
+                        return (
+                          <button
+                            type="button"
+                            disabled={soloLectura}
+                            onClick={() => setModalLinea(i)}
+                            className="entrada text-left flex items-center justify-between gap-1 disabled:bg-fondo"
+                            title={prod ? `${prod.codigo} · ${prod.nombre}` : 'Buscar producto'}
+                          >
+                            {prod ? (
+                              <>
+                                <span className="cifra truncate">{prod.codigo}</span>
+                                {bodegaVenta && (
+                                  <span className={`cifra text-[11px] shrink-0 ${disp <= 0 ? 'text-rojo font-semibold' : 'text-slate-400'}`}>
+                                    {disp}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-slate-400">🔍 Buscar…</span>
+                            )}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="py-1 pr-2">
                       <input
@@ -756,6 +753,113 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
               El número consecutivo se asigna únicamente al emitir. Un borrador descartado no quema números.
             </p>
           )}
+        </div>
+      </div>
+
+      {modalLinea !== null && (
+        <ModalProductos
+          productos={filtrarPorBodega && bodegaVenta ? productosVisibles : productos}
+          bodegaNombre={bodegaVenta?.nombre ?? null}
+          alCerrar={() => setModalLinea(null)}
+          alElegir={(p) => {
+            setLineas((previas) =>
+              previas.map((x, j) =>
+                j === modalLinea
+                  ? p
+                    ? { ...x, productoId: String(p.id), descripcion: p.nombre, precio: String(p.precio_venta) }
+                    : { ...x, productoId: '', descripcion: x.descripcion }
+                  : x
+              )
+            );
+            setModalLinea(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ModalProductos({
+  productos,
+  bodegaNombre,
+  alElegir,
+  alCerrar,
+}: {
+  productos: Producto[];
+  bodegaNombre: string | null;
+  alElegir: (p: Producto | null) => void;
+  alCerrar: () => void;
+}) {
+  const [busqueda, setBusqueda] = useState('');
+  const q = busqueda.trim().toLowerCase();
+  const filtrados = useMemo(
+    () =>
+      !q
+        ? productos
+        : productos.filter(
+            (p) => p.codigo.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q)
+          ),
+    [productos, q]
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/40 p-4 pt-[8vh]" onClick={alCerrar}>
+      <div className="w-full max-w-2xl tarjeta p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-borde">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-tinta">
+              Buscar producto{bodegaNombre ? <span className="font-normal text-slate-400"> · existencia en {bodegaNombre}</span> : null}
+            </h3>
+            <button onClick={alCerrar} className="text-slate-400 hover:text-tinta">✕</button>
+          </div>
+          <input
+            autoFocus
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && filtrados[0]) alElegir(filtrados[0]);
+              if (e.key === 'Escape') alCerrar();
+            }}
+            placeholder="Código o nombre… (Enter elige el primero)"
+            className="entrada"
+          />
+        </div>
+        <div className="max-h-[55vh] overflow-y-auto">
+          <table className="tabla">
+            <thead className="sticky top-0">
+              <tr>
+                <th>Código</th>
+                <th>Producto</th>
+                <th className="text-right">Existencia</th>
+                <th className="text-right">Precio C$</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.length === 0 && (
+                <tr><td colSpan={4} className="py-10 text-center text-slate-400">Sin coincidencias</td></tr>
+              )}
+              {filtrados.slice(0, 100).map((p) => {
+                const disp = Number(p.existencia_bodega ?? 0);
+                return (
+                  <tr key={p.id} onClick={() => alElegir(p)} className="cursor-pointer">
+                    <td className="cifra font-medium">{p.codigo}</td>
+                    <td>{p.nombre}</td>
+                    <td className={`text-right cifra ${disp <= 0 ? 'text-rojo font-semibold' : ''}`}>{disp}</td>
+                    <td className="text-right cifra">{montoSiempre(p.precio_venta)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {filtrados.length > 100 && (
+            <p className="p-3 text-center text-xs text-slate-400">Mostrando 100 de {filtrados.length} — afiná la búsqueda</p>
+          )}
+        </div>
+        <div className="p-3 border-t border-borde flex justify-between">
+          <button onClick={() => alElegir(null)} className="text-sm text-slate-500 hover:text-tinta">
+            Línea libre (servicio, sin producto)
+          </button>
+          <button onClick={alCerrar} className="boton-suave px-4 py-1.5">Cancelar</button>
         </div>
       </div>
     </div>
