@@ -224,6 +224,29 @@ export interface Factura {
   lineas?: LineaFactura[];
 }
 
+export interface LineaTraslado {
+  id?: number;
+  producto_id: number;
+  producto_codigo?: string;
+  producto_nombre?: string;
+  unidad?: string;
+  cantidad: string | number;
+  costo_unitario: string | number;
+}
+
+export interface Traslado {
+  id: number;
+  fecha: string;
+  bodega_origen: string;
+  bodega_destino: string;
+  origen_nombre?: string;
+  destino_nombre?: string;
+  estado: 'realizado' | 'anulado';
+  notas: string | null;
+  lineas?: LineaTraslado[] | number;
+  valor?: string | number;
+}
+
 export interface FacturaPendiente {
   id: number;
   numero_completo: string;

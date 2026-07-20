@@ -125,7 +125,8 @@ cd app && npm run build          # typecheck + build
 | F2 facturas manuales | ✅ | Series tipo 'manual' por sucursal (sin talonarios); el nº del papel se digita al grabar; papel dañado → anulada sin cliente/montos; control de huecos por serie en Configuración |
 | F2 CxC | ✅ | Recibos con aplicaciones, notas de crédito (devolución/rebaja), cartera con antigüedad |
 | Inventario + compras | ✅ | Kardex, costo promedio, OC → compra → CxP; costo de venta automático |
-| Configuración | ✅ | Sucursales, bodegas, vendedores, series, parámetros, clientes, proveedores, productos |
+| Configuración | ✅ | Sucursales (con cuenta de caja propia), bodegas, vendedores (amarrados a tienda), series (número inicial / talonario desde-Nº), parámetros, clientes, proveedores, productos |
+| Traslados | ✅ | Entre bodegas, sin asiento (solo kardex doble al promedio); exige existencia en origen; anulación regresa la mercadería. Flujo: se recibe en bodega central → traslado a tiendas. Filtro parametrizable: al facturar solo se ven productos con existencia en la bodega de la tienda (`ventas_filtrar_por_bodega`) |
 | F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
 | F3 bancos/cheques | ⏳ | Incluirá pago a proveedores (CxP) y conciliación |
 | F4 retenciones | ⏳ | 2% efectuadas/recibidas |

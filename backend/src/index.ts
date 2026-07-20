@@ -18,6 +18,7 @@ import { rutasCompras } from './rutas/compras';
 import { rutasOrdenes } from './rutas/ordenes';
 import { rutasProveedores } from './rutas/proveedores';
 import { rutasCxc } from './rutas/cxc';
+import { rutasTraslados } from './rutas/traslados';
 
 const app = express();
 app.use(cors());
@@ -49,13 +50,14 @@ app.use('/api/compras', autenticar, rutasCompras);
 app.use('/api/ordenes', autenticar, rutasOrdenes);
 app.use('/api/proveedores', autenticar, rutasProveedores);
 app.use('/api/cxc', autenticar, rutasCxc); // cartera, recibos, notas de crédito
+app.use('/api/traslados', autenticar, rutasTraslados);
 app.use('/api', autenticar, rutasReportes); // /api/balanza, /api/mayor/:cuenta
 
 // Traducción de errores de BD a respuestas claras (los triggers hablan español)
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   const e = err as { code?: string; message?: string };
   if (e?.code === 'P0001') {
-    res.status(400).json({ error: e.message?.replace(/^.*?: /, '') ?? 'Operación rechazada por la BD' });
+    res.status(400).json({ error: e.message ?? 'Operación rechazada por la BD' });
     return;
   }
   if (e?.code === '23505') {

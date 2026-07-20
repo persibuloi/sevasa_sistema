@@ -10,7 +10,7 @@ export interface MovimientoInv {
   bodega: string;
   cantidad: number;        // siempre positiva; el signo lo pone la operación
   usuarioId: string;
-  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste' | 'nota_credito';
+  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste' | 'nota_credito' | 'traslado';
   origenId: number;
 }
 
@@ -84,6 +84,34 @@ export async function revertirEntrada(bd: PoolClient, m: MovimientoInv, costoUni
   }
   await moverExistencia(bd, m.productoId, m.bodega, -m.cantidad);
   await kardex(bd, m, 'anulacion', -m.cantidad, costoUnitario);
+}
+
+/** Traslado entre bodegas: mueve existencia física SIN tocar el costo promedio
+ *  (la valorización total no cambia). Exige existencia suficiente en la bodega
+ *  origen — no se puede enviar lo que no está. Devuelve el promedio (para
+ *  valorizar la línea). `m.bodega` es la ORIGEN. */
+export async function trasladoInventario(
+  bd: PoolClient,
+  m: MovimientoInv,
+  bodegaDestino: string
+): Promise<number> {
+  const { promedio } = await bloquearProducto(bd, m.productoId);
+  const enOrigen = await bd.query(
+    'SELECT COALESCE(cantidad, 0) AS cantidad FROM existencias WHERE producto_id = $1 AND bodega = $2',
+    [m.productoId, m.bodega]
+  );
+  const disponible = Number(enOrigen.rows[0]?.cantidad ?? 0);
+  if (disponible < m.cantidad) {
+    throw Object.assign(
+      new Error(`Existencia insuficiente en ${m.bodega}: hay ${disponible}, se pide ${m.cantidad}`),
+      { code: 'P0001' }  // el middleware lo traduce a 400 con mensaje claro
+    );
+  }
+  await moverExistencia(bd, m.productoId, m.bodega, -m.cantidad);
+  await moverExistencia(bd, m.productoId, bodegaDestino, m.cantidad);
+  await kardex(bd, m, 'traslado_salida', -m.cantidad, promedio);
+  await kardex(bd, { ...m, bodega: bodegaDestino }, 'traslado_entrada', m.cantidad, promedio);
+  return promedio;
 }
 
 /** Reversa de una salida (anulación de factura): reingresa al costo con que salió. */
