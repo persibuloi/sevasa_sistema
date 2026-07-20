@@ -1,19 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import Facturas from './paginas/Facturas';
 import Clientes from './paginas/Clientes';
 import Productos from './paginas/Productos';
-import Compras from './paginas/Compras';
 import Cobranza from './paginas/Cobranza';
+import Compras from './paginas/Compras';
 import Traslados from './paginas/Traslados';
 import Bancos from './paginas/Bancos';
-import Configuracion from './paginas/Configuracion';
 import Catalogo from './paginas/Catalogo';
 import Asientos from './paginas/Asientos';
 import Balanza from './paginas/Balanza';
 import Mayor from './paginas/Mayor';
 import Periodos from './paginas/Periodos';
+import Configuracion from './paginas/Configuracion';
 
 export default function App() {
   const [sesion, setSesion] = useState<Session | null>(null);
@@ -36,7 +37,13 @@ export default function App() {
     );
   }
 
-  return sesion ? <Sistema sesion={sesion} /> : <Login />;
+  return sesion ? (
+    <BrowserRouter>
+      <Sistema sesion={sesion} />
+    </BrowserRouter>
+  ) : (
+    <Login />
+  );
 }
 
 /* ---------------------------------------------------------------- login */
@@ -64,7 +71,6 @@ function Login() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
-      {/* Panel de marca */}
       <div
         className="hidden lg:flex flex-col justify-between bg-tinta text-white p-12 relative overflow-hidden"
         style={{
@@ -92,7 +98,6 @@ function Login() {
         </div>
       </div>
 
-      {/* Formulario */}
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="lg:hidden mb-8 text-center">
@@ -162,74 +167,80 @@ const GRUPOS = [
   {
     titulo: 'Ventas',
     items: [
-      { clave: 'facturas', titulo: 'Facturas', trazos: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6', 'M9 12h6'] },
-      { clave: 'clientes', titulo: 'Clientes', trazos: ['M16 21v-2a4 4 0 0 0-8 0v2', 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M20 21v-2a3.5 3.5 0 0 0-2.5-3.4'] },
-      { clave: 'productos', titulo: 'Productos', trazos: ['M21 8l-9-5-9 5v8l9 5 9-5V8z', 'M3.3 8.3L12 13l8.7-4.7', 'M12 13v9'] },
-      { clave: 'cobranza', titulo: 'Cobranza', trazos: ['M3 7h18v12H3z', 'M3 7l2-3h14l2 3', 'M16 13h.01'] },
+      { ruta: '/facturas', titulo: 'Facturas', trazos: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6', 'M9 12h6'] },
+      { ruta: '/clientes', titulo: 'Clientes', trazos: ['M16 21v-2a4 4 0 0 0-8 0v2', 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M20 21v-2a3.5 3.5 0 0 0-2.5-3.4'] },
+      { ruta: '/productos', titulo: 'Productos', trazos: ['M21 8l-9-5-9 5v8l9 5 9-5V8z', 'M3.3 8.3L12 13l8.7-4.7', 'M12 13v9'] },
+      { ruta: '/cobranza', titulo: 'Cobranza', trazos: ['M3 7h18v12H3z', 'M3 7l2-3h14l2 3', 'M16 13h.01'] },
     ],
   },
   {
     titulo: 'Compras e inventario',
     items: [
-      { clave: 'compras', titulo: 'Compras', trazos: ['M6 6h15l-1.5 9H7.5z', 'M6 6L5 2H2', 'M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'] },
-      { clave: 'traslados', titulo: 'Traslados', trazos: ['M17 3l4 4-4 4', 'M21 7H8', 'M7 21l-4-4 4-4', 'M3 17h13'] },
+      { ruta: '/compras', titulo: 'Compras', trazos: ['M6 6h15l-1.5 9H7.5z', 'M6 6L5 2H2', 'M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z', 'M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'] },
+      { ruta: '/traslados', titulo: 'Traslados', trazos: ['M17 3l4 4-4 4', 'M21 7H8', 'M7 21l-4-4 4-4', 'M3 17h13'] },
     ],
   },
   {
     titulo: 'Tesorería',
     items: [
-      { clave: 'bancos', titulo: 'Bancos y cheques', trazos: ['M3 21h18', 'M4 18h16', 'M5 18V9M9.5 18V9M14.5 18V9M19 18V9', 'M2 9l10-6 10 6z'] },
+      { ruta: '/bancos', titulo: 'Bancos y cheques', trazos: ['M3 21h18', 'M4 18h16', 'M5 18V9M9.5 18V9M14.5 18V9M19 18V9', 'M2 9l10-6 10 6z'] },
     ],
   },
   {
     titulo: 'Contabilidad',
     items: [
-      { clave: 'balanza', titulo: 'Balanza', trazos: ['M12 3v18', 'M8 21h8', 'M4 7h16', 'M6 7l-2.5 6a3 3 0 0 0 5 0L6 7', 'M18 7l-2.5 6a3 3 0 0 0 5 0L18 7'] },
-      { clave: 'asientos', titulo: 'Asientos', trazos: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'] },
-      { clave: 'mayor', titulo: 'Libro mayor', trazos: ['M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z', 'M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z'] },
-      { clave: 'catalogo', titulo: 'Catálogo', trazos: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'] },
-      { clave: 'periodos', titulo: 'Períodos', trazos: ['M8 2v4', 'M16 2v4', 'M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'] },
+      { ruta: '/balanza', titulo: 'Balanza', trazos: ['M12 3v18', 'M8 21h8', 'M4 7h16', 'M6 7l-2.5 6a3 3 0 0 0 5 0L6 7', 'M18 7l-2.5 6a3 3 0 0 0 5 0L18 7'] },
+      { ruta: '/asientos', titulo: 'Asientos', trazos: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'] },
+      { ruta: '/mayor', titulo: 'Libro mayor', trazos: ['M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z', 'M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z'] },
+      { ruta: '/catalogo', titulo: 'Catálogo', trazos: ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01'] },
+      { ruta: '/periodos', titulo: 'Períodos', trazos: ['M8 2v4', 'M16 2v4', 'M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'] },
     ],
   },
   {
     titulo: 'Administración',
     items: [
-      { clave: 'configuracion', titulo: 'Configuración', trazos: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v2.5', 'M12 19.5V22', 'M2 12h2.5', 'M19.5 12H22', 'M4.6 4.6l1.8 1.8', 'M17.6 17.6l1.8 1.8', 'M19.4 4.6l-1.8 1.8', 'M6.4 17.6l-1.8 1.8'] },
+      { ruta: '/configuracion', titulo: 'Configuración', trazos: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M12 2v2.5', 'M12 19.5V22', 'M2 12h2.5', 'M19.5 12H22', 'M4.6 4.6l1.8 1.8', 'M17.6 17.6l1.8 1.8', 'M19.4 4.6l-1.8 1.8', 'M6.4 17.6l-1.8 1.8'] },
     ],
   },
 ] as const;
 
-type Pagina = (typeof GRUPOS)[number]['items'][number]['clave'];
-
-const TITULOS: Record<Pagina, string> = {
-  facturas: 'Facturación',
-  clientes: 'Clientes',
-  productos: 'Productos',
-  compras: 'Compras',
-  cobranza: 'Cobranza y cartera',
-  traslados: 'Traslados entre bodegas',
-  bancos: 'Bancos y cheques',
-  balanza: 'Balanza de comprobación',
-  asientos: 'Asientos contables',
-  mayor: 'Libro mayor',
-  catalogo: 'Catálogo de cuentas',
-  periodos: 'Períodos contables',
-  configuracion: 'Configuración',
+const TITULOS: Record<string, string> = {
+  '/facturas': 'Facturación',
+  '/clientes': 'Clientes',
+  '/productos': 'Productos',
+  '/cobranza': 'Cobranza y cartera',
+  '/compras': 'Compras',
+  '/traslados': 'Traslados entre bodegas',
+  '/bancos': 'Bancos y cheques',
+  '/balanza': 'Balanza de comprobación',
+  '/asientos': 'Asientos contables',
+  '/mayor': 'Libro mayor',
+  '/catalogo': 'Catálogo de cuentas',
+  '/periodos': 'Períodos contables',
+  '/configuracion': 'Configuración',
 };
 
-function Sistema({ sesion }: { sesion: Session }) {
-  const [pagina, setPagina] = useState<Pagina>('facturas');
-
+function Encabezado() {
+  const { pathname } = useLocation();
   const hoy = new Date().toLocaleDateString('es-NI', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   });
+  return (
+    <header className="px-8 pt-7 pb-5 flex items-end justify-between flex-wrap gap-2">
+      <h1 className="text-[26px] font-extrabold tracking-tight text-tinta">
+        {TITULOS[pathname] ?? 'SEVASA Contable'}
+      </h1>
+      <span className="text-xs text-slate-400 capitalize">{hoy}</span>
+    </header>
+  );
+}
 
+function Sistema({ sesion }: { sesion: Session }) {
   return (
     <div className="min-h-screen flex">
-      {/* Sidebar */}
       <aside className="w-60 shrink-0 bg-tinta text-white flex flex-col sticky top-0 h-screen">
         <div className="px-5 pt-6 pb-4">
           <div className="text-xl font-extrabold tracking-tight leading-none">
@@ -247,18 +258,20 @@ function Sistema({ sesion }: { sesion: Session }) {
                 {g.titulo}
               </div>
               {g.items.map((item) => (
-                <button
-                  key={item.clave}
-                  onClick={() => setPagina(item.clave)}
-                  className={`w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors mb-0.5 ${
-                    pagina === item.clave
-                      ? 'bg-verde text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]'
-                      : 'text-white/65 hover:bg-tinta-claro hover:text-white'
-                  }`}
+                <NavLink
+                  key={item.ruta}
+                  to={item.ruta}
+                  className={({ isActive }) =>
+                    `w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors mb-0.5 ${
+                      isActive
+                        ? 'bg-verde text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]'
+                        : 'text-white/65 hover:bg-tinta-claro hover:text-white'
+                    }`
+                  }
                 >
                   <Icono trazos={[...item.trazos]} />
                   {item.titulo}
-                </button>
+                </NavLink>
               ))}
             </div>
           ))}
@@ -275,26 +288,26 @@ function Sistema({ sesion }: { sesion: Session }) {
         </div>
       </aside>
 
-      {/* Contenido */}
       <div className="flex-1 min-w-0">
-        <header className="px-8 pt-7 pb-5 flex items-end justify-between flex-wrap gap-2">
-          <h1 className="text-[26px] font-extrabold tracking-tight text-tinta">{TITULOS[pagina]}</h1>
-          <span className="text-xs text-slate-400 capitalize">{hoy}</span>
-        </header>
+        <Encabezado />
         <main className="px-8 pb-12">
-          {pagina === 'facturas' && <Facturas />}
-          {pagina === 'clientes' && <Clientes />}
-          {pagina === 'productos' && <Productos />}
-          {pagina === 'compras' && <Compras />}
-          {pagina === 'cobranza' && <Cobranza />}
-          {pagina === 'traslados' && <Traslados />}
-          {pagina === 'bancos' && <Bancos />}
-          {pagina === 'balanza' && <Balanza />}
-          {pagina === 'asientos' && <Asientos />}
-          {pagina === 'mayor' && <Mayor />}
-          {pagina === 'catalogo' && <Catalogo />}
-          {pagina === 'periodos' && <Periodos />}
-          {pagina === 'configuracion' && <Configuracion />}
+          <Routes>
+            <Route path="/" element={<Navigate to="/facturas" replace />} />
+            <Route path="/facturas" element={<Facturas />} />
+            <Route path="/clientes" element={<Clientes />} />
+            <Route path="/productos" element={<Productos />} />
+            <Route path="/cobranza" element={<Cobranza />} />
+            <Route path="/compras" element={<Compras />} />
+            <Route path="/traslados" element={<Traslados />} />
+            <Route path="/bancos" element={<Bancos />} />
+            <Route path="/balanza" element={<Balanza />} />
+            <Route path="/asientos" element={<Asientos />} />
+            <Route path="/mayor" element={<Mayor />} />
+            <Route path="/catalogo" element={<Catalogo />} />
+            <Route path="/periodos" element={<Periodos />} />
+            <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="*" element={<Navigate to="/facturas" replace />} />
+          </Routes>
         </main>
       </div>
     </div>
