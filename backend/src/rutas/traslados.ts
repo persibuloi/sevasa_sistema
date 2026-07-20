@@ -6,8 +6,16 @@ import { requierePermiso } from '../auth';
 import { registrarBitacora } from '../bitacora';
 import { trasladoInventario, revertirEntrada, revertirSalida } from '../inventario';
 
-/** Traslados entre bodegas: movimiento físico, sin asiento contable. */
+/** Traslados entre bodegas: movimiento físico, sin asiento contable.
+ *  Aun así respetan el candado de período: alteran el kardex histórico. */
 export const rutasTraslados = Router();
+
+async function periodoAbierto(anoMes: string): Promise<string | null> {
+  const p = await pool.query('SELECT estado FROM periodos WHERE ano_mes = $1', [anoMes]);
+  if (p.rowCount === 0) return `El período ${anoMes} no existe — abrilo primero en Períodos`;
+  if (p.rows[0].estado !== 'abierto') return `El período ${anoMes} está cerrado`;
+  return null;
+}
 
 const SQL_LISTA = `
   SELECT t.*,
@@ -66,6 +74,11 @@ rutasTraslados.post('/', requierePermiso('inventario', 'crear'), envolver(async 
   );
   if (bodegas.rowCount !== 2) {
     res.status(400).json({ error: 'Alguna de las bodegas no existe o está inactiva' });
+    return;
+  }
+  const errorPeriodo = await periodoAbierto(fecha.slice(0, 7));
+  if (errorPeriodo) {
+    res.status(400).json({ error: errorPeriodo });
     return;
   }
 

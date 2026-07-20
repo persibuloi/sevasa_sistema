@@ -22,8 +22,11 @@ import { rutasTraslados } from './rutas/traslados';
 import { rutasBancos } from './rutas/bancos';
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+// En producción, CORS_ORIGEN limita los orígenes (ej: https://contable.sevasa.com)
+const origenes = process.env.CORS_ORIGEN?.split(',').map((s) => s.trim()).filter(Boolean);
+app.use(cors(origenes && origenes.length > 0 ? { origin: origenes } : {}));
+app.use(express.json({ limit: '1mb' }));
+app.disable('x-powered-by');
 
 app.get('/api/salud', async (_req, res) => {
   try {

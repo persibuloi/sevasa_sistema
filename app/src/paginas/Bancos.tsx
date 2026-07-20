@@ -511,8 +511,11 @@ function TabCuentas() {
               <label className="etiqueta">Moneda</label>
               <select value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value as 'NIO' | 'USD' })} className="entrada">
                 <option value="NIO">NIO (córdobas)</option>
-                <option value="USD">USD (dólares)</option>
+                <option value="USD" disabled>USD — llega con multimoneda</option>
               </select>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Las cuentas en dólares se habilitan cuando el sistema soporte conversión al tipo de cambio.
+              </p>
             </div>
             <div>
               <label className="etiqueta">Cuenta contable</label>

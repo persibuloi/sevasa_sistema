@@ -60,6 +60,22 @@ async function periodoAbierto(anoMes: string): Promise<string | null> {
   return null;
 }
 
+/** La bodega elegida debe existir, estar activa y pertenecer a la sucursal de la serie. */
+async function validarBodega(bodega: unknown, serie: string): Promise<string | null> {
+  if (!bodega || typeof bodega !== 'string') return null;
+  const r = await pool.query(
+    `SELECT b.activa, b.sucursal, s.sucursal AS sucursal_serie
+     FROM bodegas b CROSS JOIN series s
+     WHERE b.codigo = $1 AND s.serie = $2`,
+    [bodega, serie]
+  );
+  if (r.rowCount === 0 || !r.rows[0].activa) return `La bodega ${bodega} no existe o está inactiva`;
+  if (r.rows[0].sucursal_serie && r.rows[0].sucursal !== r.rows[0].sucursal_serie) {
+    return `La bodega ${bodega} no pertenece a la sucursal de la serie ${serie}`;
+  }
+  return null;
+}
+
 const SQL_LISTA = `
   SELECT f.*, t.nombre AS cliente,
          COALESCE(su.nombre, s.tienda) AS tienda,
@@ -113,7 +129,7 @@ rutasFacturas.get('/:id', requierePermiso('facturacion', 'ver'), envolver(async 
 
 // Crear BORRADOR (sin número — el número se asigna solo al emitir)
 rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async (req, res) => {
-  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id } = req.body ?? {};
+  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id, bodega } = req.body ?? {};
   if (!serie || !tercero_id || !['contado', 'credito'].includes(tipo_pago)) {
     res.status(400).json({ error: 'serie, tercero_id y tipo_pago (contado/credito) son obligatorios' });
     return;
@@ -128,12 +144,17 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
     res.status(400).json({ error: 'Líneas inválidas: descripción, cantidad > 0 y precio >= 0' });
     return;
   }
+  const errorBodega = await validarBodega(bodega, serie);
+  if (errorBodega) {
+    res.status(400).json({ error: errorBodega });
+    return;
+  }
   const factura = await enTransaccion(async (bd: PoolClient) => {
     const f = await bd.query(
-      `INSERT INTO facturas (serie, fecha, tercero_id, tipo_pago, subtotal, iva, total, notas, vendedor_id, creado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      `INSERT INTO facturas (serie, fecha, tercero_id, tipo_pago, subtotal, iva, total, notas, vendedor_id, bodega, creado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [serie, fecha, tercero_id, tipo_pago, totales.subtotal, totales.iva, totales.total,
-       notas || null, vendedor_id || null, req.usuario!.id]
+       notas || null, vendedor_id || null, bodega || null, req.usuario!.id]
     );
     for (const l of totales.lineas) {
       await bd.query(
@@ -149,7 +170,7 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
 
 // Editar BORRADOR (reemplaza encabezado y líneas; la BD bloquea si no es borrador)
 rutasFacturas.put('/:id', requierePermiso('facturacion', 'editar'), envolver(async (req, res) => {
-  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id } = req.body ?? {};
+  const { serie, fecha, tercero_id, tipo_pago, lineas, notas, vendedor_id, bodega } = req.body ?? {};
   const actual = await pool.query('SELECT estado FROM facturas WHERE id = $1', [req.params.id]);
   if (actual.rowCount === 0) {
     res.status(404).json({ error: 'Factura no existe' });
@@ -165,15 +186,21 @@ rutasFacturas.put('/:id', requierePermiso('facturacion', 'editar'), envolver(asy
     res.status(400).json({ error: 'Líneas inválidas: descripción, cantidad > 0 y precio >= 0' });
     return;
   }
+  const errorBodega = await validarBodega(bodega, serie);
+  if (errorBodega) {
+    res.status(400).json({ error: errorBodega });
+    return;
+  }
   const factura = await enTransaccion(async (bd: PoolClient) => {
     const f = await bd.query(
       `UPDATE facturas
        SET serie = $2, fecha = $3, tercero_id = $4, tipo_pago = $5,
-           subtotal = $6, iva = $7, total = $8, notas = $9, vendedor_id = $10,
-           actualizado_por = $11, actualizado_en = now()
+           subtotal = $6, iva = $7, total = $8, notas = $9, vendedor_id = $10, bodega = $11,
+           actualizado_por = $12, actualizado_en = now()
        WHERE id = $1 RETURNING *`,
       [req.params.id, serie, fecha, tercero_id, tipo_pago,
-       totales.subtotal, totales.iva, totales.total, notas || null, vendedor_id || null, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, vendedor_id || null,
+       bodega || null, req.usuario!.id]
     );
     await bd.query('DELETE FROM factura_lineas WHERE factura_id = $1', [req.params.id]);
     for (const l of totales.lineas) {
@@ -230,18 +257,28 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
     );
     let bodega: string | null = null;
     if ((lineasProducto.rowCount ?? 0) > 0) {
-      const b = await bd.query(
-        `SELECT b.codigo FROM bodegas b JOIN series s ON s.sucursal = b.sucursal
-         WHERE s.serie = $1 AND b.activa ORDER BY b.codigo LIMIT 1`,
-        [factura.serie]
-      );
-      if (b.rowCount === 0) {
-        return {
-          error: 400,
-          mensaje: `La sucursal de la serie ${factura.serie} no tiene bodega activa — creala en Configuración → Bodegas`,
-        };
+      if (factura.bodega) {
+        // Bodega EXPLÍCITA del documento (auditoría P1)
+        const b = await bd.query('SELECT activa FROM bodegas WHERE codigo = $1', [factura.bodega]);
+        if (!b.rows[0]?.activa) {
+          return { error: 400, mensaje: `La bodega ${factura.bodega} de la factura no está activa` };
+        }
+        bodega = factura.bodega;
+      } else {
+        // Respaldo: la primera bodega activa de la sucursal de la serie
+        const b = await bd.query(
+          `SELECT b.codigo FROM bodegas b JOIN series s ON s.sucursal = b.sucursal
+           WHERE s.serie = $1 AND b.activa ORDER BY b.codigo LIMIT 1`,
+          [factura.serie]
+        );
+        if (b.rowCount === 0) {
+          return {
+            error: 400,
+            mensaje: `La sucursal de la serie ${factura.serie} no tiene bodega activa — creala en Configuración → Bodegas`,
+          };
+        }
+        bodega = b.rows[0].codigo;
       }
-      bodega = b.rows[0].codigo;
     }
 
     const cliente = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [factura.tercero_id]);
@@ -396,15 +433,26 @@ rutasFacturas.post('/manual-anulada', requierePermiso('facturacion', 'crear'), e
     res.status(400).json({ error: 'serie, numero y motivo son obligatorios' });
     return;
   }
+  const hoy = new Date().toISOString().slice(0, 10);
+  const errorPeriodo = await periodoAbierto(hoy.slice(0, 7));
+  if (errorPeriodo) {
+    res.status(400).json({ error: errorPeriodo });
+    return;
+  }
   const resultado = await enTransaccion(async (bd: PoolClient): Promise<{ error?: number; mensaje?: string; factura?: unknown }> => {
-    const s = await bd.query(`SELECT tipo, prefijo FROM series WHERE serie = $1 FOR UPDATE`, [serie]);
-    if (s.rowCount === 0 || s.rows[0].tipo !== 'manual') {
-      return { error: 400, mensaje: `${serie} no es una serie manual` };
+    const s = await bd.query(
+      `SELECT tipo, prefijo, activa, documento, numero_desde FROM series WHERE serie = $1 FOR UPDATE`,
+      [serie]
+    );
+    if (s.rowCount === 0 || s.rows[0].tipo !== 'manual' || s.rows[0].documento !== 'factura') {
+      return { error: 400, mensaje: `${serie} no es una serie manual de facturas` };
     }
+    if (!s.rows[0].activa) return { error: 400, mensaje: `La serie ${serie} está inactiva` };
+    const desde = Number(s.rows[0].numero_desde ?? 1);
+    if (n < desde) return { error: 400, mensaje: `El talonario de la serie ${serie} empieza en el Nº ${desde}` };
     const usado = await bd.query('SELECT 1 FROM facturas WHERE serie = $1 AND numero = $2', [serie, n]);
     if ((usado.rowCount ?? 0) > 0) return { error: 409, mensaje: `El número ${n} ya fue grabado en ${serie}` };
     const numeroCompleto = `${s.rows[0].prefijo}${String(n).padStart(6, '0')}`;
-    const hoy = new Date().toISOString().slice(0, 10);
     const f = await bd.query(
       `INSERT INTO facturas (serie, numero, numero_completo, fecha, tipo_pago, estado, origen, notas, creado_por)
        VALUES ($1, $2, $3, $4, 'contado', 'anulada', 'manual', $5, $6) RETURNING *`,

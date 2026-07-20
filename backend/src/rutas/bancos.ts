@@ -45,6 +45,12 @@ rutasBancos.post('/cuentas', requierePermiso('admin', 'editar'), envolver(async 
     res.status(400).json({ error: 'banco, nombre, numero y cuenta_contable son obligatorios' });
     return;
   }
+  if (moneda === 'USD') {
+    res.status(400).json({
+      error: 'Cuentas en USD bloqueadas: el soporte multimoneda aún no está implementado (los montos se contabilizarían mal)',
+    });
+    return;
+  }
   const inicial = Number(ultimo_cheque ?? 0);
   if (!Number.isInteger(inicial) || inicial < 0) {
     res.status(400).json({ error: 'ultimo_cheque debe ser un entero >= 0' });
@@ -163,6 +169,9 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
     res.status(400).json({ error: 'El pago a proveedor necesita tercero_id' });
     return;
   }
+  // Agregar por compra ANTES de validar: repetir la misma compra se SUMA
+  // — el pago total jamás supera la deuda (auditoría P0)
+  const porCompra = new Map<number, number>();
   let montoCent = 0;
   if (esPagoProveedor) {
     for (const a of aplicaciones as Array<{ compra_id: number; monto: number }>) {
@@ -172,6 +181,7 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
         return;
       }
       montoCent += c;
+      porCompra.set(Number(a.compra_id), (porCompra.get(Number(a.compra_id)) ?? 0) + c);
     }
   } else {
     montoCent = aCentavos(monto);
@@ -194,16 +204,19 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
     const cb = await bd.query('SELECT * FROM cuentas_bancarias WHERE id = $1 FOR UPDATE', [cuenta_bancaria_id]);
     if (cb.rowCount === 0 || !cb.rows[0].activa) return { error: 400, mensaje: 'Cuenta bancaria inexistente o inactiva' };
     const banco = cb.rows[0];
+    if (banco.moneda === 'USD') {
+      return { error: 400, mensaje: 'Cuentas en USD bloqueadas hasta implementar multimoneda' };
+    }
 
-    // Validar aplicaciones contra el saldo de cada compra (con lock)
+    // Validar el TOTAL aplicado a cada compra (ya agregado), con lock
     if (esPagoProveedor) {
-      for (const a of aplicaciones as Array<{ compra_id: number; monto: number }>) {
-        const compra = await bd.query(`${SQL_SALDOS_CXP} AND c.id = $1 FOR UPDATE OF c`, [a.compra_id]);
-        if (compra.rowCount === 0) return { error: 400, mensaje: `La compra ${a.compra_id} no es de crédito registrada` };
+      for (const [compraId, montoCentCompra] of porCompra) {
+        const compra = await bd.query(`${SQL_SALDOS_CXP} AND c.id = $1 FOR UPDATE OF c`, [compraId]);
+        if (compra.rowCount === 0) return { error: 400, mensaje: `La compra ${compraId} no es de crédito registrada` };
         if (Number(compra.rows[0].tercero_id) !== Number(tercero_id)) {
           return { error: 400, mensaje: `La compra ${compra.rows[0].numero_documento} no es de este proveedor` };
         }
-        if (aCentavos(a.monto) > Math.round(Number(compra.rows[0].saldo) * 100) + 1) {
+        if (montoCentCompra > Math.round(Number(compra.rows[0].saldo) * 100) + 1) {
           return {
             error: 400,
             mensaje: `A la compra ${compra.rows[0].numero_documento} solo se le deben ${Number(compra.rows[0].saldo).toFixed(2)}`,
@@ -267,10 +280,10 @@ rutasBancos.post('/movimientos', requierePermiso('bancos', 'crear'), envolver(as
        concepto, montoTotal, asientoId, req.usuario!.id]
     );
     if (esPagoProveedor) {
-      for (const a of aplicaciones as Array<{ compra_id: number; monto: number }>) {
+      for (const [compraId, montoCentCompra] of porCompra) {
         await bd.query(
           `INSERT INTO pago_aplicaciones (movimiento_banco_id, compra_id, monto) VALUES ($1, $2, $3)`,
-          [movimiento.rows[0].id, a.compra_id, Number(a.monto)]
+          [movimiento.rows[0].id, compraId, montoCentCompra / 100]
         );
       }
     }
@@ -357,5 +370,7 @@ rutasBancos.put('/movimientos/:id/conciliar', requierePermiso('bancos', 'cerrar'
     res.status(409).json({ error: 'Movimiento inexistente o anulado' });
     return;
   }
+  await registrarBitacora(pool, req.usuario!.id, conciliado === true ? 'conciliar_movimiento' : 'desconciliar_movimiento',
+    'movimientos_banco', String(req.params.id), { conciliado: conciliado === true });
   res.json(r.rows[0]);
 }));

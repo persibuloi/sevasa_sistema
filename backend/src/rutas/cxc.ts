@@ -17,14 +17,21 @@ async function periodoAbierto(anoMes: string): Promise<string | null> {
   return null;
 }
 
-/** Consecutivo con row-lock (mismo patrón que facturas). */
-async function tomarNumero(bd: PoolClient, serieCodigo: string): Promise<{ numero: number; numeroCompleto: string }> {
+/** Consecutivo con row-lock (mismo patrón que facturas). Exige que la serie
+ *  sea del tipo de documento correcto — una serie de facturas jamás numera recibos. */
+async function tomarNumero(
+  bd: PoolClient,
+  serieCodigo: string,
+  documento: 'recibo' | 'nota_credito'
+): Promise<{ numero: number; numeroCompleto: string }> {
   const r = await bd.query(
     `UPDATE series SET ultimo_numero = ultimo_numero + 1
-     WHERE serie = $1 AND activa RETURNING ultimo_numero, prefijo`,
-    [serieCodigo]
+     WHERE serie = $1 AND activa AND documento = $2 RETURNING ultimo_numero, prefijo`,
+    [serieCodigo, documento]
   );
-  if (r.rowCount === 0) throw new Error(`La serie ${serieCodigo} no existe o está inactiva`);
+  if (r.rowCount === 0) {
+    throw new Error(`La serie ${serieCodigo} no existe, está inactiva o no es una serie de ${documento}`);
+  }
   const numero: number = r.rows[0].ultimo_numero;
   return { numero, numeroCompleto: `${r.rows[0].prefijo}${String(numero).padStart(6, '0')}` };
 }
@@ -128,6 +135,10 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
     res.status(400).json({ error: 'El recibo necesita al menos una aplicación (factura o a cuenta)' });
     return;
   }
+  // Agregar por factura ANTES de validar: una factura repetida en la petición
+  // se suma — así el total aplicado jamás supera el saldo (auditoría P0)
+  const porFactura = new Map<number, number>();
+  let aCuentaCent = 0;
   let totalCent = 0;
   for (const a of aplicaciones as Array<{ factura_id?: number | null; monto: number }>) {
     const c = aCentavos(a.monto);
@@ -136,6 +147,8 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
       return;
     }
     totalCent += c;
+    if (a.factura_id) porFactura.set(Number(a.factura_id), (porFactura.get(Number(a.factura_id)) ?? 0) + c);
+    else aCuentaCent += c;
   }
   const errorPeriodo = await periodoAbierto(fecha.slice(0, 7));
   if (errorPeriodo) {
@@ -144,15 +157,15 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
   }
 
   const resultado = await enTransaccion(async (bd: PoolClient): Promise<{ error?: number; mensaje?: string; recibo?: unknown }> => {
-    // Validar cada factura aplicada: del cliente, emitida, crédito, con saldo suficiente
-    for (const a of aplicaciones as Array<{ factura_id?: number | null; monto: number }>) {
-      if (!a.factura_id) continue;
-      const f = await bd.query(`${SQL_SALDOS} AND f.id = $1 FOR UPDATE OF f`, [a.factura_id]);
-      if (f.rowCount === 0) return { error: 400, mensaje: `La factura ${a.factura_id} no es de crédito emitida` };
+    // Validar el TOTAL aplicado a cada factura (ya agregado): del cliente,
+    // emitida, crédito, con saldo suficiente — con lock de la factura
+    for (const [facturaId, montoCentFactura] of porFactura) {
+      const f = await bd.query(`${SQL_SALDOS} AND f.id = $1 FOR UPDATE OF f`, [facturaId]);
+      if (f.rowCount === 0) return { error: 400, mensaje: `La factura ${facturaId} no es de crédito emitida` };
       if (Number(f.rows[0].tercero_id) !== Number(tercero_id)) {
         return { error: 400, mensaje: `La factura ${f.rows[0].numero_completo} no es de este cliente` };
       }
-      if (aCentavos(a.monto) > Math.round(Number(f.rows[0].saldo) * 100) + 1) {
+      if (montoCentFactura > Math.round(Number(f.rows[0].saldo) * 100) + 1) {
         return {
           error: 400,
           mensaje: `La factura ${f.rows[0].numero_completo} solo debe ${Number(f.rows[0].saldo).toFixed(2)}`,
@@ -161,7 +174,7 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
     }
 
     const cfg = await leerConfig(bd, ['serie_recibos', 'cuenta_caja', 'cuenta_cxc']);
-    const { numero, numeroCompleto } = await tomarNumero(bd, cfg.serie_recibos!);
+    const { numero, numeroCompleto } = await tomarNumero(bd, cfg.serie_recibos!, 'recibo');
     const total = totalCent / 100;
     const cliente = await bd.query('SELECT nombre FROM terceros WHERE id = $1', [tercero_id]);
 
@@ -187,10 +200,16 @@ rutasCxc.post('/recibos', requierePermiso('cxc', 'crear'), envolver(async (req, 
       [cfg.serie_recibos, numero, numeroCompleto, fecha, tercero_id, forma_pago, referencia || null, total,
        asiento.rows[0].id, notas || null, req.usuario!.id]
     );
-    for (const a of aplicaciones as Array<{ factura_id?: number | null; monto: number }>) {
+    for (const [facturaId, montoCentFactura] of porFactura) {
       await bd.query(
         `INSERT INTO recibo_aplicaciones (recibo_id, factura_id, monto) VALUES ($1, $2, $3)`,
-        [recibo.rows[0].id, a.factura_id ?? null, Number(a.monto)]
+        [recibo.rows[0].id, facturaId, montoCentFactura / 100]
+      );
+    }
+    if (aCuentaCent > 0) {
+      await bd.query(
+        `INSERT INTO recibo_aplicaciones (recibo_id, factura_id, monto) VALUES ($1, NULL, $2)`,
+        [recibo.rows[0].id, aCuentaCent / 100]
       );
     }
     await registrarBitacora(bd, req.usuario!.id, 'emitir_recibo', 'recibos', String(recibo.rows[0].id), {
@@ -313,21 +332,27 @@ rutasCxc.post('/notas', requierePermiso('cxc', 'crear'), envolver(async (req, re
       if (!Array.isArray(lineas) || lineas.length === 0) {
         return { error: 400, mensaje: 'La devolución necesita líneas (qué se devuelve)' };
       }
+      // Agregar por línea de factura ANTES de validar: repetir la misma línea
+      // en la petición se SUMA — no puede devolver más de lo facturado (P0)
+      const porLinea = new Map<number, number>();
       for (const l of lineas as Array<{ factura_linea_id: number; cantidad: number }>) {
         const cantidad = Number(l.cantidad);
         if (!l.factura_linea_id || !Number.isFinite(cantidad) || cantidad <= 0) {
           return { error: 400, mensaje: 'Cada línea de devolución necesita factura_linea_id y cantidad > 0' };
         }
+        porLinea.set(Number(l.factura_linea_id), (porLinea.get(Number(l.factura_linea_id)) ?? 0) + cantidad);
+      }
+      for (const [lineaId, cantidad] of porLinea) {
         const fl = await bd.query('SELECT * FROM factura_lineas WHERE id = $1 AND factura_id = $2', [
-          l.factura_linea_id, factura_id,
+          lineaId, factura_id,
         ]);
-        if (fl.rowCount === 0) return { error: 400, mensaje: `La línea ${l.factura_linea_id} no es de esta factura` };
+        if (fl.rowCount === 0) return { error: 400, mensaje: `La línea ${lineaId} no es de esta factura` };
         const original = fl.rows[0];
         const yaDevuelto = await bd.query(
           `SELECT COALESCE(SUM(ncl.cantidad), 0) AS c
            FROM nota_credito_lineas ncl JOIN notas_credito n ON n.id = ncl.nota_id AND n.estado = 'emitida'
            WHERE ncl.factura_linea_id = $1`,
-          [l.factura_linea_id]
+          [lineaId]
         );
         const disponible = Number(original.cantidad) - Number(yaDevuelto.rows[0].c);
         if (cantidad > disponible + 0.001) {
@@ -336,7 +361,7 @@ rutasCxc.post('/notas', requierePermiso('cxc', 'crear'), envolver(async (req, re
         const totalLineaCent = Math.round(cantidad * aCentavos(Number(original.precio_unitario)));
         subtotalCent += totalLineaCent;
         lineasNota.push({
-          factura_linea_id: l.factura_linea_id,
+          factura_linea_id: lineaId,
           producto_id: original.producto_id,
           cantidad,
           precio: Number(original.precio_unitario),
@@ -361,7 +386,12 @@ rutasCxc.post('/notas', requierePermiso('cxc', 'crear'), envolver(async (req, re
       }
     }
 
-    const { numero, numeroCompleto } = await tomarNumero(bd, cfg.serie_notas_credito!);
+    const { numero, numeroCompleto } = await tomarNumero(bd, cfg.serie_notas_credito!, 'nota_credito');
+
+    // Id de la nota reservado ANTES de tocar inventario: el kardex nace con su
+    // origen correcto (sin adopciones de huérfanos — auditoría P1)
+    const idNota = await bd.query(`SELECT nextval(pg_get_serial_sequence('notas_credito', 'id')) AS id`);
+    const notaId = Number(idNota.rows[0].id);
 
     const asiento = await bd.query(
       `INSERT INTO asientos (fecha, ano_mes, tipo_origen, origen_id, concepto, creado_por)
@@ -404,7 +434,7 @@ rutasCxc.post('/notas', requierePermiso('cxc', 'crear'), envolver(async (req, re
         await entradaInventario(
           bd,
           { fecha, productoId: l.producto_id, bodega: salida.rows[0].bodega, cantidad: l.cantidad,
-            usuarioId: req.usuario!.id, origenTipo: 'nota_credito', origenId: 0 },
+            usuarioId: req.usuario!.id, origenTipo: 'nota_credito', origenId: notaId },
           costo
         );
         costoCent += Math.round(l.cantidad * costo * 100);
@@ -422,25 +452,19 @@ rutasCxc.post('/notas', requierePermiso('cxc', 'crear'), envolver(async (req, re
     }
 
     const nota = await bd.query(
-      `INSERT INTO notas_credito (serie, numero, numero_completo, fecha, factura_id, tercero_id, tipo, motivo,
+      `INSERT INTO notas_credito (id, serie, numero, numero_completo, fecha, factura_id, tercero_id, tipo, motivo,
                                   subtotal, iva, total, costo, asiento_id, creado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [cfg.serie_notas_credito, numero, numeroCompleto, fecha, factura_id, factura.tercero_id, tipo, motivo,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [notaId, cfg.serie_notas_credito, numero, numeroCompleto, fecha, factura_id, factura.tercero_id, tipo, motivo,
        subtotalCent / 100, ivaCent / 100, totalCent / 100, costoCent / 100, asientoId, req.usuario!.id]
     );
     for (const l of lineasNota) {
       await bd.query(
         `INSERT INTO nota_credito_lineas (nota_id, factura_linea_id, producto_id, cantidad, precio_unitario, total)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [nota.rows[0].id, l.factura_linea_id, l.producto_id, l.cantidad, l.precio, l.total]
+        [notaId, l.factura_linea_id, l.producto_id, l.cantidad, l.precio, l.total]
       );
     }
-    // Corregir el origen de los kardex de esta nota (se insertaron antes de conocer el id)
-    await bd.query(
-      `UPDATE movimientos_inventario SET origen_id = $1
-       WHERE origen_tipo = 'nota_credito' AND origen_id = 0`,
-      [nota.rows[0].id]
-    );
     await registrarBitacora(bd, req.usuario!.id, 'emitir_nota_credito', 'notas_credito', String(nota.rows[0].id), {
       numero: numeroCompleto,
       factura: factura.numero_completo,

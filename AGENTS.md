@@ -103,6 +103,28 @@ facturador, comprador, consulta.
   IVA correcto, período cerrado rechaza escritura. Corren antes de cada push.
 - Fases chicas probadas E2E con datos reales antes de avanzar (método Sevasa).
 
+## Seguridad (auditoría 2026-07 — migración 014)
+
+- RLS habilitado en TODAS las tablas + REVOKE total a anon/authenticated
+  (tablas, secuencias, funciones, USAGE del esquema y default privileges).
+  PostgREST devuelve 401: el ÚNICO camino a los datos es el backend.
+  El backend conecta como dueño de las tablas → RLS no lo afecta.
+  REGLA: toda tabla nueva nace cerrada; si algún día se quiere acceso directo
+  vía supabase-js, se agrega política RLS explícita en migración.
+- Aplicaciones SIEMPRE agregadas por documento antes de validar saldo
+  (recibos→facturas, pagos→compras, devoluciones→líneas): repetir un id en la
+  petición se suma, jamás sobreaplica.
+- Inmutabilidad BD en TODOS los documentos (facturas, compras, recibos, notas,
+  movimientos_banco, traslados): solo transición a anulado (+conciliado en
+  bancos); líneas/aplicaciones solo se insertan en la MISMA transacción que
+  crea su documento (creado_en = now()).
+- USD bloqueado en bancos hasta implementar multimoneda completa.
+- Bootstrap del primer admin: atómico con pg_advisory_xact_lock.
+- CORS restringible con CORS_ORIGEN (coma-separado); json limit 1mb; timeout
+  10s al validar tokens.
+- Pendiente de la auditoría: tests contables automatizados (Jest), columnas de
+  auditoría en tablas menores, rate limiting.
+
 ## Capacidad y concurrencia
 
 - Consecutivos PROBADOS bajo carga: `npm run prueba:carga` — 20 clientes × 25

@@ -192,6 +192,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [terceroId, setTerceroId] = useState('');
   const [vendedorId, setVendedorId] = useState('');
+  const [bodegaId, setBodegaId] = useState('');
   const [numeroManual, setNumeroManual] = useState('');
   const [tipoPago, setTipoPago] = useState<'contado' | 'credito'>('contado');
   const [notas, setNotas] = useState('');
@@ -209,23 +210,33 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     [vendedores, serieElegida]
   );
 
-  // Bodega de la venta: la primera activa de la sucursal de la serie (misma regla del backend)
-  const bodegaVenta = useMemo(() => {
-    if (!serieElegida?.sucursal) return null;
-    return (
-      bodegas
-        .filter((b) => b.sucursal === serieElegida.sucursal)
-        .sort((a, b) => a.codigo.localeCompare(b.codigo))[0] ?? null
-    );
+  // Bodegas de la sucursal de la serie; la factura guarda su bodega EXPLÍCITA
+  const bodegasDeSucursal = useMemo(() => {
+    if (!serieElegida?.sucursal) return [];
+    return bodegas
+      .filter((b) => b.sucursal === serieElegida.sucursal)
+      .sort((a, b) => a.codigo.localeCompare(b.codigo));
   }, [bodegas, serieElegida]);
+
+  useEffect(() => {
+    if (bodegasDeSucursal.length === 0) {
+      setBodegaId('');
+      return;
+    }
+    if (!bodegasDeSucursal.some((b) => b.codigo === bodegaId)) {
+      setBodegaId(bodegasDeSucursal[0]?.codigo ?? '');
+    }
+  }, [bodegasDeSucursal]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bodegaVenta = bodegasDeSucursal.find((b) => b.codigo === bodegaId) ?? null;
 
   // Productos con la existencia de ESA bodega
   useEffect(() => {
     api
-      .get<Producto[]>(`/productos${bodegaVenta ? `?bodega=${encodeURIComponent(bodegaVenta.codigo)}` : ''}`)
+      .get<Producto[]>(`/productos${bodegaId ? `?bodega=${encodeURIComponent(bodegaId)}` : ''}`)
       .then((p) => setProductos(p.filter((x) => x.activo)))
       .catch(() => undefined);
-  }, [bodegaVenta]);
+  }, [bodegaId]);
 
   // Parametrizable: la tienda solo ve los productos de SU bodega (con existencia)
   const productosVisibles = useMemo(() => {
@@ -267,6 +278,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           setFecha(f.fecha.slice(0, 10));
           setTerceroId(String(f.tercero_id));
           setVendedorId(f.vendedor_id ? String(f.vendedor_id) : '');
+          if (f.bodega) setBodegaId(f.bodega);
           setTipoPago(f.tipo_pago);
           setNotas(f.notas ?? '');
           setLineas(
@@ -304,6 +316,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       fecha,
       tercero_id: Number(terceroId),
       vendedor_id: vendedorId ? Number(vendedorId) : null,
+      bodega: bodegaId || null,
       tipo_pago: tipoPago,
       notas,
       lineas: lineas
@@ -461,7 +474,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4 mb-5">
+          <div className="grid md:grid-cols-3 gap-4 mb-5">
             <div>
               <label className="etiqueta">Vendedor (opcional)</label>
               <select
@@ -473,6 +486,20 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 <option value="">— sin vendedor —</option>
                 {vendedoresDeTienda.map((v) => (
                   <option key={v.id} value={v.id}>{v.codigo ? `${v.codigo} · ` : ''}{v.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="etiqueta">Bodega de despacho</label>
+              <select
+                value={bodegaId}
+                onChange={(e) => setBodegaId(e.target.value)}
+                disabled={soloLectura || bodegasDeSucursal.length === 0}
+                className="entrada"
+              >
+                {bodegasDeSucursal.length === 0 && <option value="">— la sucursal no tiene bodegas —</option>}
+                {bodegasDeSucursal.map((b) => (
+                  <option key={b.codigo} value={b.codigo}>{b.codigo} · {b.nombre}</option>
                 ))}
               </select>
             </div>

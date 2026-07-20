@@ -219,6 +219,7 @@ export interface Factura {
   total: string | number;
   notas: string | null;
   asiento_id: number | null;
+  bodega?: string | null;
   vendedor_id: number | null;
   vendedor?: string | null;
   lineas?: LineaFactura[];

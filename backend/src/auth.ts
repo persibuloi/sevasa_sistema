@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { pool } from './db';
+import { pool, enTransaccion } from './db';
 
 export interface UsuarioSesion {
   id: string;
@@ -36,9 +36,16 @@ export const autenticar: RequestHandler = (req, res, next) => {
       return;
     }
     const { url, llave } = config();
-    const respuesta = await fetch(`${url}/auth/v1/user`, {
-      headers: { Authorization: `Bearer ${token}`, apikey: llave },
-    });
+    let respuesta: Response;
+    try {
+      respuesta = await fetch(`${url}/auth/v1/user`, {
+        headers: { Authorization: `Bearer ${token}`, apikey: llave },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      res.status(503).json({ error: 'No se pudo validar la sesión (servidor de auth no responde)' });
+      return;
+    }
     if (!respuesta.ok) {
       res.status(401).json({ error: 'Sesión inválida o vencida' });
       return;
@@ -47,24 +54,29 @@ export const autenticar: RequestHandler = (req, res, next) => {
 
     let u = await pool.query('SELECT id, email, nombre, activo FROM usuarios WHERE id = $1', [auth.id]);
     if (u.rowCount === 0) {
-      const total = await pool.query('SELECT count(*)::int AS n FROM usuarios');
-      if ((total.rows[0]?.n ?? 1) === 0) {
-        // Bootstrap: el PRIMER usuario que entra al sistema queda como admin
-        await pool.query('INSERT INTO usuarios (id, email, nombre) VALUES ($1, $2, $2)', [
+      // Bootstrap ATÓMICO: el PRIMER usuario que entra queda como admin.
+      // Advisory lock → dos primeros accesos simultáneos no crean dos admins.
+      const creado = await enTransaccion(async (bd) => {
+        await bd.query('SELECT pg_advisory_xact_lock(420001)');
+        const total = await bd.query('SELECT count(*)::int AS n FROM usuarios');
+        if ((total.rows[0]?.n ?? 1) !== 0) return false;
+        await bd.query('INSERT INTO usuarios (id, email, nombre) VALUES ($1, $2, $2)', [
           auth.id,
           auth.email ?? auth.id,
         ]);
-        await pool.query('INSERT INTO usuario_roles (usuario_id, rol) VALUES ($1, $2)', [auth.id, 'admin']);
-        await pool.query(
+        await bd.query('INSERT INTO usuario_roles (usuario_id, rol) VALUES ($1, $2)', [auth.id, 'admin']);
+        await bd.query(
           `INSERT INTO bitacora (usuario_id, accion, entidad, entidad_id, detalle)
            VALUES ($1, 'bootstrap_admin', 'usuarios', $1, $2)`,
           [auth.id, JSON.stringify({ email: auth.email })]
         );
-        u = await pool.query('SELECT id, email, nombre, activo FROM usuarios WHERE id = $1', [auth.id]);
-      } else {
+        return true;
+      });
+      if (!creado) {
         res.status(403).json({ error: 'Usuario no habilitado en el sistema — pedir acceso al administrador' });
         return;
       }
+      u = await pool.query('SELECT id, email, nombre, activo FROM usuarios WHERE id = $1', [auth.id]);
     }
     const fila = u.rows[0];
     if (!fila.activo) {
