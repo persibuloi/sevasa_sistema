@@ -82,6 +82,23 @@ rutasTraslados.post('/', requierePermiso('inventario', 'crear'), envolver(async 
     return;
   }
 
+  // Amarre duro: usuario con bodega/sucursal SOLO origina traslados desde su
+  // bodega (o desde bodegas de su sucursal). Enviar hacia otras es libre.
+  const u = req.usuario!;
+  if (!u.roles.includes('admin')) {
+    if (u.bodega && bodega_origen !== u.bodega) {
+      res.status(403).json({ error: `Pertenecés a la bodega ${u.bodega}: solo podés trasladar desde ella` });
+      return;
+    }
+    if (!u.bodega && u.sucursal) {
+      const bo = await pool.query('SELECT sucursal FROM bodegas WHERE codigo = $1', [bodega_origen]);
+      if (bo.rows[0]?.sucursal !== u.sucursal) {
+        res.status(403).json({ error: `Pertenecés a la sucursal ${u.sucursal}: solo podés trasladar desde sus bodegas` });
+        return;
+      }
+    }
+  }
+
   const traslado = await enTransaccion(async (bd: PoolClient) => {
     const t = await bd.query(
       `INSERT INTO traslados (fecha, bodega_origen, bodega_destino, notas, creado_por)

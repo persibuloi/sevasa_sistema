@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Bodega, Cliente, Factura, Producto, Serie, Vendedor } from '../tipos';
+import type { Bodega, Cliente, Factura, Producto, Serie, Sesion, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
 
 type Vista = { modo: 'lista' } | { modo: 'editor'; id: number | null };
@@ -256,10 +256,15 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       api.get<Array<{ clave: string; valor: string }>>('/config'),
       api.get<Vendedor[]>('/configuracion/vendedores'),
       api.get<Bodega[]>('/configuracion/bodegas'),
+      api.get<Sesion>('/yo'),
     ])
-      .then(([c, s, cfg, v, b]) => {
+      .then(([c, s, cfg, v, b, yo]) => {
         setClientes(c.filter((x) => x.activo));
-        const deFactura = s.filter((x) => x.activa && x.documento === 'factura');
+        // Amarre duro: usuario con sucursal (no admin) solo ve las series de SU tienda
+        const miSucursal = !yo.roles.includes('admin') && yo.sucursal ? yo.sucursal : null;
+        const deFactura = s.filter(
+          (x) => x.activa && x.documento === 'factura' && (!miSucursal || !x.sucursal || x.sucursal === miSucursal)
+        );
         setSeries(deFactura);
         setVendedores(v.filter((x) => x.activo));
         setBodegas(b.filter((x) => x.activa));

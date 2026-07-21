@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Bodega, Producto, Traslado } from '../tipos';
+import type { Bodega, Producto, Sesion, Traslado } from '../tipos';
 import { montoSiempre } from '../formato';
 
 interface LineaForm {
@@ -95,6 +95,7 @@ export default function Traslados() {
 
 function FormTraslado({ alRealizar }: { alRealizar: (mensaje: string) => void }) {
   const [bodegas, setBodegas] = useState<Bodega[]>([]);
+  const [bodegasOrigen, setBodegasOrigen] = useState<Bodega[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
@@ -105,7 +106,20 @@ function FormTraslado({ alRealizar }: { alRealizar: (mensaje: string) => void })
   const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
-    api.get<Bodega[]>('/configuracion/bodegas').then((b) => setBodegas(b.filter((x) => x.activa))).catch(() => undefined);
+    Promise.all([api.get<Bodega[]>('/configuracion/bodegas'), api.get<Sesion>('/yo')])
+      .then(([b, yo]) => {
+        const activas = b.filter((x) => x.activa);
+        setBodegas(activas);
+        // Amarre duro (espejo del backend): con bodega asignada solo se origina
+        // desde ella; con solo sucursal, desde las bodegas de esa sucursal
+        const admin = yo.roles.includes('admin');
+        let origenes = activas;
+        if (!admin && yo.bodega) origenes = activas.filter((x) => x.codigo === yo.bodega);
+        else if (!admin && yo.sucursal) origenes = activas.filter((x) => x.sucursal === yo.sucursal);
+        setBodegasOrigen(origenes);
+        if (origenes.length === 1) setOrigen(origenes[0]?.codigo ?? '');
+      })
+      .catch(() => undefined);
   }, []);
 
   // Productos con existencia en la bodega ORIGEN (solo se traslada lo que hay)
@@ -153,7 +167,7 @@ function FormTraslado({ alRealizar }: { alRealizar: (mensaje: string) => void })
           <label className="etiqueta">Bodega origen</label>
           <select value={origen} onChange={(e) => setOrigen(e.target.value)} className="entrada">
             <option value="">— origen —</option>
-            {bodegas.map((b) => <option key={b.codigo} value={b.codigo}>{b.codigo} · {b.nombre}</option>)}
+            {bodegasOrigen.map((b) => <option key={b.codigo} value={b.codigo}>{b.codigo} · {b.nombre}</option>)}
           </select>
         </div>
         <div>

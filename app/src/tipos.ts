@@ -112,6 +112,37 @@ export interface Vendedor {
   activo: boolean;
 }
 
+export interface UsuarioFicha {
+  id: string;
+  email: string;
+  nombre: string;
+  cedula: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  cargo: string | null;
+  fecha_ingreso: string | null;
+  notas: string | null;
+  sucursal: string | null;
+  sucursal_nombre?: string | null;
+  bodega: string | null;
+  bodega_nombre?: string | null;
+  vendedor_id: number | null;
+  vendedor_nombre?: string | null;
+  ultimo_acceso?: string | null;
+  roles: string[];
+  activo: boolean;
+}
+
+export interface Sesion {
+  id: string;
+  email: string;
+  nombre: string;
+  roles: string[];
+  sucursal: string | null;
+  bodega: string | null;
+  vendedor_id: number | null;
+}
+
 export interface ClaveConfig {
   clave: string;
   valor: string;

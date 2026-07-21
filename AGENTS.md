@@ -74,9 +74,20 @@ en pantalla — nada quemado en código. Editar config = permiso admin, queda en
 ## Permisos
 
 Por ACCIÓN vía tabla `permisos` (rol → módulo → ver/crear/editar/anular/cerrar).
-Módulos en uso: `contabilidad`, `facturacion`, `compras`, `cxc`, `admin`.
-El rol `admin` pasa todo (bypass en `requierePermiso`). Roles: admin, contador, cajero,
-facturador, comprador, consulta.
+Módulos en uso: `contabilidad`, `facturacion`, `compras`, `cxc`, `bancos`, `polizas`,
+`inventario`, `admin`. El rol `admin` pasa todo (bypass en `requierePermiso`).
+Roles: admin, contador, cajero, facturador, comprador, consulta.
+
+Usuarios (Administración → Usuarios, `rutas/usuarios.ts`): el admin crea la cuenta
+completa en UNA transacción — login en `auth.users`/`auth.identities` vía SQL
+(extensions.crypt bcrypt, email confirmado), ficha personal (cédula/teléfono/cargo/…),
+roles y AMARRES: `usuarios.sucursal/bodega/vendedor_id` (migración 024). Los usuarios
+NUNCA se borran: se desactivan. Reset de clave por admin; todo va a bitácora.
+AMARRE DURO (decisión del usuario): con sucursal asignada y sin rol admin, solo se
+facturan series de ESA sucursal (`serieDeMiSucursal` en borrador Y emitir); con
+bodega/sucursal asignada, los traslados solo se ORIGINAN desde la bodega propia (o
+las de su sucursal); enviar hacia cualquier bodega es libre. El front espeja los
+filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (última).
 
 ## Diseño (sistema "libro mayor moderno")
 
@@ -140,7 +151,11 @@ facturador, comprador, consulta.
   directo (cuadre, período cerrado, inmutabilidad, no-DELETE) y el perímetro
   RLS vía REST (401). Destruye el esquema al final — la base real no se toca.
   El bypass de auth de la suite SOLO se activa con ESQUEMA_PRUEBAS definido y
-  nunca en producción (auth.ts). CORRE ANTES DE CADA PUSH.
+  nunca en producción (auth.ts); la cabecera `x-prueba-usuario` (solo bajo ese
+  mismo doble candado) simula usuarios no-admin con amarres para probar el
+  enforcement. Las cuentas de login que la suite crea en auth.users (esquema
+  compartido, dominio @pruebas-sevasa.local) se limpian en el afterAll.
+  CORRE ANTES DE CADA PUSH.
 - Pendiente de la auditoría: columnas de auditoría en tablas menores.
 
 ## Capacidad y concurrencia
@@ -192,6 +207,7 @@ cd app && npm run build          # typecheck + build
 | F2 CxC | ✅ | Recibos con aplicaciones, notas de crédito (devolución/rebaja), cartera con antigüedad |
 | Inventario + compras | ✅ | Kardex, costo promedio, OC → compra → CxP; costo de venta automático |
 | Configuración | ✅ | Sucursales (con cuenta de caja propia), bodegas, vendedores (amarrados a tienda), series (número inicial / talonario desde-Nº), parámetros, clientes, proveedores, productos |
+| Usuarios ✅ | ✅ | Administración → Usuarios: alta completa (login+ficha+roles) en una tx, edición, desactivar (nunca borrar), reset de clave; amarres sucursal/bodega/vendedor con enforcement duro en facturas (series) y traslados (origen). Foto: diferida |
 | Traslados | ✅ | Entre bodegas, sin asiento (solo kardex doble al promedio); exige existencia en origen; anulación regresa la mercadería. Flujo: se recibe en bodega central → traslado a tiendas. Filtro parametrizable: al facturar solo se ven productos con existencia en la bodega de la tienda (`ventas_filtrar_por_bodega`) |
 | F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
 | F3 bancos/cheques ✅ | ✅ | Cuentas bancarias (chequera con último cheque inicializable), cheques/transferencias/depósitos/débitos-créditos bancarios con asiento automático, pago a proveedores aplicado a compras (baja CxP con validación de saldo), anulación por contra-asiento, conciliación manual con flotante. Pendiente F3b: importar estado de cuenta, multimoneda USD plena, impresión de cheque |

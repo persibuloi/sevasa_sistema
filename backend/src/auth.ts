@@ -6,6 +6,9 @@ export interface UsuarioSesion {
   email: string;
   nombre: string;
   roles: string[];
+  sucursal: string | null;
+  bodega: string | null;
+  vendedor_id: number | null;
 }
 
 declare global {
@@ -33,12 +36,26 @@ export const autenticar: RequestHandler = (req, res, next) => {
   // el backend apuntando a un esquema temporal Y NODE_ENV=test (Vitest lo
   // define). En cualquier otro entorno este bloque es inalcanzable.
   if (process.env.ESQUEMA_PRUEBAS && process.env.NODE_ENV === 'test') {
-    req.usuario = {
+    const simulado: UsuarioSesion = {
       id: '00000000-0000-0000-0000-000000000001',
       email: 'pruebas@sevasa.local',
       nombre: 'Usuario de pruebas',
       roles: ['admin'],
+      sucursal: null,
+      bodega: null,
+      vendedor_id: null,
     };
+    // La suite puede simular un usuario NO admin con amarres vía cabecera
+    // (para probar el enforcement de sucursal/bodega). Inalcanzable fuera de pruebas.
+    const cabecera = req.headers['x-prueba-usuario'];
+    if (typeof cabecera === 'string') {
+      try {
+        Object.assign(simulado, JSON.parse(cabecera));
+      } catch {
+        /* cabecera inválida: se usa el admin por defecto */
+      }
+    }
+    req.usuario = simulado;
     next();
     return;
   }
@@ -65,7 +82,10 @@ export const autenticar: RequestHandler = (req, res, next) => {
     }
     const auth = (await respuesta.json()) as { id: string; email?: string };
 
-    let u = await pool.query('SELECT id, email, nombre, activo FROM usuarios WHERE id = $1', [auth.id]);
+    let u = await pool.query(
+      'SELECT id, email, nombre, activo, sucursal, bodega, vendedor_id FROM usuarios WHERE id = $1',
+      [auth.id]
+    );
     if (u.rowCount === 0) {
       // Bootstrap ATÓMICO: el PRIMER usuario que entra queda como admin.
       // Advisory lock → dos primeros accesos simultáneos no crean dos admins.
@@ -89,7 +109,10 @@ export const autenticar: RequestHandler = (req, res, next) => {
         res.status(403).json({ error: 'Usuario no habilitado en el sistema — pedir acceso al administrador' });
         return;
       }
-      u = await pool.query('SELECT id, email, nombre, activo FROM usuarios WHERE id = $1', [auth.id]);
+      u = await pool.query(
+        'SELECT id, email, nombre, activo, sucursal, bodega, vendedor_id FROM usuarios WHERE id = $1',
+        [auth.id]
+      );
     }
     const fila = u.rows[0];
     if (!fila.activo) {
@@ -102,6 +125,9 @@ export const autenticar: RequestHandler = (req, res, next) => {
       email: fila.email,
       nombre: fila.nombre,
       roles: roles.rows.map((r) => r.rol as string),
+      sucursal: fila.sucursal ?? null,
+      bodega: fila.bodega ?? null,
+      vendedor_id: fila.vendedor_id ?? null,
     };
     next();
   })().catch(next);

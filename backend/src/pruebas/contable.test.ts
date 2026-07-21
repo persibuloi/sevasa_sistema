@@ -62,6 +62,9 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
+  // Las cuentas de login de la suite viven en auth.users (esquema REAL
+  // compartido): se limpian siempre, incluidas las de corridas que fallaron
+  await pool.query(`DELETE FROM auth.users WHERE email LIKE '%@pruebas-sevasa.local'`);
   await pool.query(`DROP SCHEMA IF EXISTS ${esquema} CASCADE`);
   await pool.end();
 }, 120_000);
@@ -486,6 +489,127 @@ describe('bitácora', () => {
     }
     const filtrada = await request(app).get('/api/bitacora?accion=emitir_factura');
     expect((filtrada.body.filas as Array<{ accion: string }>).every((f) => f.accion === 'emitir_factura')).toBe(true);
+  }, 60_000);
+});
+
+describe('administración de usuarios (ficha + credenciales + roles)', () => {
+  const email = `${esquema}@pruebas-sevasa.local`;
+  let nuevoId = '';
+
+  it('crea el usuario completo en una transacción (login + ficha + roles)', async () => {
+    const r = await request(app).post('/api/usuarios').send({
+      email, clave: 'Clave-Segura-1', nombre: 'Vendedora Prueba',
+      cedula: '001-010190-0001A', telefono: '8888-0000', cargo: 'Vendedora',
+      sucursal: 'CEN', bodega: 'BOD-CEN', roles: ['facturador'],
+    });
+    expect(r.status).toBe(201);
+    nuevoId = r.body.id;
+
+    const lista = await request(app).get('/api/usuarios');
+    expect(lista.status).toBe(200);
+    const fila = (lista.body as Array<Record<string, unknown>>).find((u) => u.email === email);
+    expect(fila).toBeTruthy();
+    expect(fila!.nombre).toBe('Vendedora Prueba');
+    expect(fila!.sucursal).toBe('CEN');
+    expect(fila!.roles).toEqual(['facturador']);
+
+    // La cuenta de login quedó en auth (esquema REAL compartido; se limpia al final)
+    const enAuth = await pool.query('SELECT email_confirmed_at FROM auth.users WHERE id = $1', [nuevoId]);
+    expect(enAuth.rowCount).toBe(1);
+    expect(enAuth.rows[0].email_confirmed_at).toBeTruthy();
+  }, 60_000);
+
+  it('rechaza correo duplicado, clave corta y usuario sin rol', async () => {
+    const dup = await request(app).post('/api/usuarios').send({
+      email, clave: 'Clave-Segura-1', nombre: 'Duplicada', roles: ['consulta'],
+    });
+    expect(dup.status).toBe(409);
+    const corta = await request(app).post('/api/usuarios').send({
+      email: `otra-${esquema}@pruebas-sevasa.local`, clave: 'corta', nombre: 'X', roles: ['consulta'],
+    });
+    expect(corta.status).toBe(400);
+    const sinRol = await request(app).post('/api/usuarios').send({
+      email: `otra-${esquema}@pruebas-sevasa.local`, clave: 'Clave-Segura-1', nombre: 'X', roles: [],
+    });
+    expect(sinRol.status).toBe(400);
+  }, 60_000);
+
+  it('edita ficha, cambia roles, desactiva y resetea la clave (todo en bitácora)', async () => {
+    const ed = await request(app).put(`/api/usuarios/${nuevoId}`).send({
+      cargo: 'Cajera', roles: ['cajero'], activo: false,
+    });
+    expect(ed.status).toBe(200);
+    const lista = await request(app).get('/api/usuarios');
+    const fila = (lista.body as Array<Record<string, unknown>>).find((u) => u.email === email);
+    expect(fila!.cargo).toBe('Cajera');
+    expect(fila!.roles).toEqual(['cajero']);
+    expect(fila!.activo).toBe(false);
+
+    const reset = await request(app).post(`/api/usuarios/${nuevoId}/reset-clave`).send({ clave: 'Nueva-Clave-9' });
+    expect(reset.status).toBe(200);
+
+    const b = await request(app).get('/api/bitacora?por_pagina=50');
+    const acciones = new Set((b.body.filas as Array<{ accion: string }>).map((f) => f.accion));
+    for (const esperada of ['crear_usuario', 'editar_usuario', 'reset_clave']) {
+      expect(acciones.has(esperada), `falta ${esperada} en la bitácora`).toBe(true);
+    }
+  }, 60_000);
+});
+
+describe('amarres duros por sucursal y bodega (enforcement)', () => {
+  beforeAll(async () => {
+    await pool.query(`INSERT INTO sucursales (codigo, nombre) VALUES ('SUR', 'Tienda Sur')`);
+    await pool.query(`INSERT INTO bodegas (codigo, nombre, sucursal) VALUES ('BOD-SUR', 'Bodega Sur', 'SUR')`);
+    await pool.query(`
+      INSERT INTO series (serie, sucursal, tipo, prefijo, documento)
+      VALUES ('A-SUR', 'SUR', 'sistema', 'A-SUR-', 'factura')`);
+    // requierePermiso valida los roles contra la BD: el usuario de pruebas
+    // necesita las filas reales para actuar como no-admin
+    await pool.query(
+      `INSERT INTO usuario_roles (usuario_id, rol) VALUES ($1, 'facturador'), ($1, 'comprador') ON CONFLICT DO NOTHING`,
+      [USUARIO]
+    );
+  });
+
+  it('un facturador amarrado a SUR no puede usar la serie de otra sucursal', async () => {
+    const simulado = JSON.stringify({ roles: ['facturador'], sucursal: 'SUR' });
+    const ajena = await request(app).post('/api/facturas')
+      .set('x-prueba-usuario', simulado)
+      .send({ serie: 'A-CEN', fecha: '2026-07-20', tercero_id: 1, tipo_pago: 'contado',
+              lineas: [{ descripcion: 'Servicio', cantidad: 1, precio_unitario: 100 }] });
+    expect(ajena.status).toBe(403);
+    expect(ajena.body.error).toMatch(/sucursal SUR/);
+
+    const propia = await request(app).post('/api/facturas')
+      .set('x-prueba-usuario', simulado)
+      .send({ serie: 'A-SUR', fecha: '2026-07-20', tercero_id: 1, tipo_pago: 'contado',
+              lineas: [{ descripcion: 'Servicio', cantidad: 1, precio_unitario: 100 }] });
+    expect(propia.status).toBe(201);
+  }, 60_000);
+
+  it('un bodeguero amarrado a BOD-SUR no puede originar traslados desde otra bodega', async () => {
+    const r = await request(app).post('/api/traslados')
+      .set('x-prueba-usuario', JSON.stringify({ roles: ['comprador'], sucursal: 'SUR', bodega: 'BOD-SUR' }))
+      .send({ fecha: '2026-07-20', bodega_origen: 'BOD-CEN', bodega_destino: 'BOD-SUR',
+              lineas: [{ producto_id: 1, cantidad: 1 }] });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toMatch(/bodega BOD-SUR/);
+  }, 60_000);
+
+  it('un usuario de la sucursal CEN sí traslada desde sus bodegas hacia otra tienda', async () => {
+    const r = await request(app).post('/api/traslados')
+      .set('x-prueba-usuario', JSON.stringify({ roles: ['comprador'], sucursal: 'CEN' }))
+      .send({ fecha: '2026-07-20', bodega_origen: 'BOD-CEN', bodega_destino: 'BOD-SUR',
+              lineas: [{ producto_id: 1, cantidad: 1 }] });
+    expect(r.status).toBe(201);
+  }, 60_000);
+
+  it('los admins no tienen amarre (operan en todas las sucursales)', async () => {
+    const r = await request(app).post('/api/facturas')
+      .set('x-prueba-usuario', JSON.stringify({ roles: ['admin'], sucursal: 'SUR' }))
+      .send({ serie: 'A-CEN', fecha: '2026-07-20', tercero_id: 1, tipo_pago: 'contado',
+              lineas: [{ descripcion: 'Servicio', cantidad: 1, precio_unitario: 100 }] });
+    expect(r.status).toBe(201);
   }, 60_000);
 });
 

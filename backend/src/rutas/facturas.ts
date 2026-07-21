@@ -60,6 +60,18 @@ async function periodoAbierto(anoMes: string): Promise<string | null> {
   return null;
 }
 
+/** Amarre duro por tienda: usuario con sucursal asignada SOLO usa series de
+ *  SU sucursal. Sin amarre (o admin) = sin restricción. */
+async function serieDeMiSucursal(usuario: import('../auth').UsuarioSesion, serie: string): Promise<string | null> {
+  if (!usuario.sucursal || usuario.roles.includes('admin')) return null;
+  const s = await pool.query('SELECT sucursal FROM series WHERE serie = $1', [serie]);
+  if (s.rowCount === 0) return `La serie ${serie} no existe`;
+  if (s.rows[0].sucursal && s.rows[0].sucursal !== usuario.sucursal) {
+    return `Pertenecés a la sucursal ${usuario.sucursal}: no podés usar la serie ${serie}`;
+  }
+  return null;
+}
+
 /** La bodega elegida debe existir, estar activa y pertenecer a la sucursal de la serie. */
 async function validarBodega(bodega: unknown, serie: string): Promise<string | null> {
   if (!bodega || typeof bodega !== 'string') return null;
@@ -142,6 +154,11 @@ rutasFacturas.post('/', requierePermiso('facturacion', 'crear'), envolver(async 
   const totales = calcularTotales(lineas, Number(cfg.tasa_iva));
   if (!totales) {
     res.status(400).json({ error: 'Líneas inválidas: descripción, cantidad > 0 y precio >= 0' });
+    return;
+  }
+  const errorSucursal = await serieDeMiSucursal(req.usuario!, serie);
+  if (errorSucursal) {
+    res.status(403).json({ error: errorSucursal });
     return;
   }
   const errorBodega = await validarBodega(bodega, serie);
@@ -239,6 +256,12 @@ rutasFacturas.post('/:id/emitir', requierePermiso('facturacion', 'crear'), envol
   const errorPeriodo = await periodoAbierto(fechaFactura.slice(0, 7));
   if (errorPeriodo) {
     res.status(400).json({ error: errorPeriodo });
+    return;
+  }
+  const facturaPrevia = await pool.query('SELECT serie FROM facturas WHERE id = $1', [id]);
+  const errorSucursal = await serieDeMiSucursal(req.usuario!, facturaPrevia.rows[0]?.serie);
+  if (errorSucursal) {
+    res.status(403).json({ error: errorSucursal });
     return;
   }
 
