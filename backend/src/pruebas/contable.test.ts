@@ -305,6 +305,26 @@ describe('anulaciones espejo', () => {
   }, 60_000);
 });
 
+describe('compra de contado con caja elegida', () => {
+  it('acredita la caja indicada en cuenta_pago, no la general', async () => {
+    const b = await request(app).post('/api/compras').send({
+      tercero_id: 2, numero_documento: 'FC-CAJA', fecha: '2026-07-08', tipo_pago: 'contado',
+      bodega: 'BOD-CEN', cuenta_pago: '1-01-02-01',   // banco BAC como "caja" elegida
+      lineas: [{ producto_id: 1, cantidad: 1, costo_unitario: 100 }],
+    });
+    expect(b.status).toBe(201);
+    const reg = await request(app).post(`/api/compras/${b.body.id}/registrar`).send({});
+    expect(reg.status).toBe(200);
+    const movs = await pool.query(
+      `SELECT cuenta, credito FROM movimientos WHERE asiento_id = $1 AND credito > 0`,
+      [reg.body.asiento_id]
+    );
+    expect(movs.rows).toHaveLength(1);
+    expect(movs.rows[0].cuenta).toBe('1-01-02-01');   // la elegida, no 1-01-01
+    expect(Number(movs.rows[0].credito)).toBeCloseTo(115, 2);
+  }, 60_000);
+});
+
 describe('retenciones (F4)', () => {
   it('compra con retención IR 2%: acredita la cuenta, baja la CxP al neto y el asiento cuadra', async () => {
     const b = await request(app).post('/api/compras').send({

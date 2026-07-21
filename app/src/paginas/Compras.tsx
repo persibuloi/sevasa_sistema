@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
-import type { Bodega, Cliente, Compra, OrdenCompra, Producto, RetencionTipo } from '../tipos';
+import type { Bodega, Cliente, Compra, OrdenCompra, Producto, RetencionTipo, Sucursal } from '../tipos';
 import { montoSiempre } from '../formato';
 
 const PESTANAS = [
@@ -145,6 +145,8 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
   const [productos, setProductos] = useState<Producto[]>([]);
   const [tiposRet, setTiposRet] = useState<RetencionTipo[]>([]);
   const [retenciones, setRetenciones] = useState<string[]>([]);
+  const [cajas, setCajas] = useState<Array<{ codigo: string; nombre: string }>>([]);
+  const [cuentaPago, setCuentaPago] = useState('');
   const [tasaIva, setTasaIva] = useState(0.15);
   const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -168,14 +170,25 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
       api.get<Producto[]>('/productos'),
       api.get<Array<{ clave: string; valor: string }>>('/config'),
       api.get<RetencionTipo[]>('/retenciones/tipos'),
+      api.get<Sucursal[]>('/configuracion/sucursales'),
     ])
-      .then(([pr, b, p, cfg, rt]) => {
+      .then(([pr, b, p, cfg, rt, sucs]) => {
         setProveedores(pr.filter((x) => x.activo));
         setBodegas(b.filter((x) => x.activa));
         setProductos(p.filter((x) => x.activo));
         setTiposRet(rt.filter((x) => x.activo && x.aplica === 'compra'));
         const tasa = cfg.find((x) => x.clave === 'tasa_iva');
         if (tasa) setTasaIva(Number(tasa.valor));
+        // Cajas disponibles para el pago de contado: general + las de cada sucursal
+        const general = cfg.find((x) => x.clave === 'cuenta_caja')?.valor;
+        const lista: Array<{ codigo: string; nombre: string }> = [];
+        if (general) lista.push({ codigo: general, nombre: 'Caja general' });
+        for (const s of sucs) {
+          if (s.cuenta_caja && !lista.some((c) => c.codigo === s.cuenta_caja)) {
+            lista.push({ codigo: s.cuenta_caja, nombre: `Caja ${s.nombre}` });
+          }
+        }
+        setCajas(lista);
       })
       .catch(() => setAviso('❌ Error cargando catálogos'));
 
@@ -191,6 +204,7 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
           setBodega(c.bodega);
           setNotas(c.notas ?? '');
           setRetenciones(c.retenciones_codigos ?? []);
+          setCuentaPago(c.cuenta_pago ?? '');
           setLineas(
             (c.lineas ?? []).map((l) => ({
               productoId: String(l.producto_id),
@@ -241,6 +255,7 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
       bodega,
       notas,
       retenciones_codigos: retenciones,
+      cuenta_pago: tipoPago === 'contado' ? (cuentaPago || null) : null,
       lineas: lineas
         .filter((l) => l.productoId)
         .map((l) => ({
@@ -377,6 +392,22 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
                 ))}
               </div>
             </div>
+            {tipoPago === 'contado' && (
+              <div>
+                <label className="etiqueta">Pagado desde</label>
+                <select value={cuentaPago} onChange={(e) => setCuentaPago(e.target.value)}
+                  disabled={soloLectura} className="entrada">
+                  <option value="">Caja general</option>
+                  {cajas.filter((c) => c.nombre !== 'Caja general').map((c) => (
+                    <option key={c.codigo} value={c.codigo}>{c.nombre} · {c.codigo}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  ¿Se pagó con cheque o transferencia? Registrala al crédito y pagala desde Bancos
+                  (así la conciliación cuadra).
+                </p>
+              </div>
+            )}
           </div>
 
           <label className="etiqueta">Detalle (productos a inventario)</label>

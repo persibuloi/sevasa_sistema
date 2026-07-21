@@ -199,6 +199,7 @@ export interface Compra {
   notas: string | null;
   asiento_id: number | null;
   retenciones_codigos?: string[];
+  cuenta_pago?: string | null;
   lineas?: LineaCompra[];
 }
 

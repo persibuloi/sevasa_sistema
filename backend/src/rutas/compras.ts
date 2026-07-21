@@ -91,13 +91,16 @@ rutasCompras.post('/', requierePermiso('compras', 'crear'), envolver(async (req,
   const codigos = Array.isArray(req.body?.retenciones_codigos)
     ? (req.body.retenciones_codigos as unknown[]).map(String)
     : [];
+  const cuentaPago = typeof req.body?.cuenta_pago === 'string' && req.body.cuenta_pago !== ''
+    ? req.body.cuenta_pago
+    : null;
   const compra = await enTransaccion(async (bd: PoolClient) => {
     const c = await bd.query(
       `INSERT INTO compras (orden_compra_id, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-                            subtotal, iva, total, notas, retenciones_codigos, creado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+                            subtotal, iva, total, notas, retenciones_codigos, cuenta_pago, creado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [orden_compra_id || null, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-       totales.subtotal, totales.iva, totales.total, notas || null, codigos, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, codigos, cuentaPago, req.usuario!.id]
     );
     for (const l of totales.lineas) {
       await bd.query(
@@ -131,15 +134,18 @@ rutasCompras.put('/:id', requierePermiso('compras', 'editar'), envolver(async (r
   const codigos = Array.isArray(req.body?.retenciones_codigos)
     ? (req.body.retenciones_codigos as unknown[]).map(String)
     : [];
+  const cuentaPago = typeof req.body?.cuenta_pago === 'string' && req.body.cuenta_pago !== ''
+    ? req.body.cuenta_pago
+    : null;
   const compra = await enTransaccion(async (bd: PoolClient) => {
     const c = await bd.query(
       `UPDATE compras
        SET tercero_id = $2, numero_documento = $3, fecha = $4, tipo_pago = $5, bodega = $6,
            subtotal = $7, iva = $8, total = $9, notas = $10, retenciones_codigos = $11,
-           actualizado_por = $12, actualizado_en = now()
+           cuenta_pago = $12, actualizado_por = $13, actualizado_en = now()
        WHERE id = $1 RETURNING *`,
       [req.params.id, tercero_id, numero_documento, fecha, tipo_pago, bodega,
-       totales.subtotal, totales.iva, totales.total, notas || null, codigos, req.usuario!.id]
+       totales.subtotal, totales.iva, totales.total, notas || null, codigos, cuentaPago, req.usuario!.id]
     );
     await bd.query('DELETE FROM compra_lineas WHERE compra_id = $1', [req.params.id]);
     for (const l of totales.lineas) {
@@ -242,8 +248,11 @@ rutasCompras.post('/:id/registrar', requierePermiso('compras', 'crear'), envolve
         [id, r.codigo, r.base, r.monto]
       );
     }
-    // CxP/Caja recibe el NETO (total − retenciones)
-    const cuentaAbono = compra.tipo_pago === 'credito' ? cfg.cuenta_cxp : cfg.cuenta_caja;
+    // CxP/Caja recibe el NETO (total − retenciones). En contado, la caja
+    // elegida en el documento (o la general si no se indicó)
+    const cuentaAbono = compra.tipo_pago === 'credito'
+      ? cfg.cuenta_cxp
+      : (compra.cuenta_pago ?? cfg.cuenta_caja);
     await bd.query(
       `INSERT INTO movimientos (asiento_id, cuenta, debito, credito, tercero_id, documento_ref)
        VALUES ($1, $2, 0, $3, $4, $5)`,
