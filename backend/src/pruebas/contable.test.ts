@@ -455,6 +455,20 @@ describe('estados financieros (F6)', () => {
   }, 60_000);
 });
 
+describe('bitácora', () => {
+  it('todas las operaciones del ciclo quedaron registradas y la consulta filtra', async () => {
+    const r = await request(app).get('/api/bitacora?por_pagina=200');
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBeGreaterThan(5);
+    const acciones = new Set((r.body.filas as Array<{ accion: string }>).map((f) => f.accion));
+    for (const esperada of ['registrar_compra', 'emitir_factura', 'emitir_recibo', 'anular_factura', 'liquidar_poliza', 'cerrar_ejercicio']) {
+      expect(acciones.has(esperada), `falta ${esperada} en la bitácora`).toBe(true);
+    }
+    const filtrada = await request(app).get('/api/bitacora?accion=emitir_factura');
+    expect((filtrada.body.filas as Array<{ accion: string }>).every((f) => f.accion === 'emitir_factura')).toBe(true);
+  }, 60_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;

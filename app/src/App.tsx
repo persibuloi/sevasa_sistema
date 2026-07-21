@@ -18,6 +18,7 @@ import Periodos from './paginas/Periodos';
 import Retenciones from './paginas/Retenciones';
 import EstadosFinancieros from './paginas/EstadosFinancieros';
 import Configuracion from './paginas/Configuracion';
+import Bitacora from './paginas/Bitacora';
 
 export default function App() {
   const [sesion, setSesion] = useState<Session | null>(null);
@@ -232,6 +233,7 @@ const GRUPOS = [
           { ruta: '/configuracion/series', titulo: 'Series de factura' },
           { ruta: '/configuracion/parametros', titulo: 'Parámetros' },
         ] },
+      { ruta: '/bitacora', titulo: 'Bitácora', trazos: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M8 13h8', 'M8 17h5'] },
     ],
   },
 ] as const;
@@ -258,6 +260,7 @@ const TITULOS: Record<string, string> = {
   '/retenciones': 'Retenciones',
   '/estados': 'Estados financieros',
   '/configuracion': 'Configuración',
+  '/bitacora': 'Bitácora de auditoría',
 };
 
 function Encabezado() {
@@ -380,6 +383,7 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/estados/:pestana" element={<EstadosFinancieros />} />
             <Route path="/configuracion" element={<Navigate to="/configuracion/sucursales" replace />} />
             <Route path="/configuracion/:pestana" element={<Configuracion />} />
+            <Route path="/bitacora" element={<Bitacora />} />
             <Route path="*" element={<Navigate to="/facturas" replace />} />
           </Routes>
         </main>
