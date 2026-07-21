@@ -16,6 +16,7 @@ import Balanza from './paginas/Balanza';
 import Mayor from './paginas/Mayor';
 import Periodos from './paginas/Periodos';
 import Retenciones from './paginas/Retenciones';
+import EstadosFinancieros from './paginas/EstadosFinancieros';
 import Configuracion from './paginas/Configuracion';
 
 export default function App() {
@@ -207,6 +208,11 @@ const GRUPOS = [
   {
     titulo: 'Contabilidad',
     items: [
+      { ruta: '/estados', titulo: 'Estados financieros', trazos: ['M3 3v18h18', 'M7 15l4-5 3 3 5-7'],
+        subs: [
+          { ruta: '/estados/balance', titulo: 'Balance General' },
+          { ruta: '/estados/resultados', titulo: 'Estado de Resultados' },
+        ] },
       { ruta: '/balanza', titulo: 'Balanza', trazos: ['M12 3v18', 'M8 21h8', 'M4 7h16', 'M6 7l-2.5 6a3 3 0 0 0 5 0L6 7', 'M18 7l-2.5 6a3 3 0 0 0 5 0L18 7'] },
       { ruta: '/asientos', titulo: 'Asientos', trazos: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'] },
       { ruta: '/mayor', titulo: 'Libro mayor', trazos: ['M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z', 'M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z'] },
@@ -250,6 +256,7 @@ const TITULOS: Record<string, string> = {
   '/catalogo': 'Catálogo de cuentas',
   '/periodos': 'Períodos contables',
   '/retenciones': 'Retenciones',
+  '/estados': 'Estados financieros',
   '/configuracion': 'Configuración',
 };
 
@@ -369,6 +376,8 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/periodos" element={<Periodos />} />
             <Route path="/retenciones" element={<Retenciones />} />
+            <Route path="/estados" element={<Navigate to="/estados/balance" replace />} />
+            <Route path="/estados/:pestana" element={<EstadosFinancieros />} />
             <Route path="/configuracion" element={<Navigate to="/configuracion/sucursales" replace />} />
             <Route path="/configuracion/:pestana" element={<Configuracion />} />
             <Route path="*" element={<Navigate to="/facturas" replace />} />

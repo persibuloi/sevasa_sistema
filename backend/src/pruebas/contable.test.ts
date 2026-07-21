@@ -38,6 +38,7 @@ beforeAll(async () => {
       ('2-01',       'CxP',             'pasivo',  1, true),
       ('2-02-01',    'IVA por pagar',   'pasivo',  1, true),
       ('2-03',       'Retención IR por pagar', 'pasivo', 1, true),
+      ('3-02',       'Resultados acumulados',  'capital', 1, true),
       ('4-01',       'Ventas',          'ingreso', 1, true),
       ('5-01',       'Costo de ventas', 'costo',   1, true)`);
   await pool.query(`INSERT INTO sucursales (codigo, nombre) VALUES ('CEN', 'Central')`);
@@ -419,6 +420,38 @@ describe('pólizas de importación (F5)', () => {
       aplicaciones: [{ poliza_id: pol!.id, monto: 400 }, { poliza_id: pol!.id, monto: 400 }],
     });
     expect(sobre.status).toBe(400);
+  }, 60_000);
+});
+
+describe('estados financieros (F6)', () => {
+  it('el Balance General cuadra y su utilidad coincide con el Estado de Resultados', async () => {
+    const balance = await request(app).get('/api/estados/balance?hasta=2026-07');
+    expect(balance.status).toBe(200);
+    expect(balance.body.totales.cuadrado).toBe(true);
+    expect(Number(balance.body.totales.activo)).toBeCloseTo(Number(balance.body.totales.pasivo_mas_capital), 2);
+
+    const resultados = await request(app).get('/api/estados/resultados?desde=2026-06&hasta=2026-07');
+    expect(resultados.status).toBe(200);
+    // La utilidad acumulada del balance = utilidad neta de resultados (todo el historial cae en jun-jul)
+    expect(Number(balance.body.totales.utilidad_periodo)).toBeCloseTo(Number(resultados.body.totales.utilidad_neta), 2);
+    // Coherencia interna del estado de resultados
+    const t = resultados.body.totales;
+    expect(Number(t.utilidad_neta)).toBeCloseTo(Number(t.ingresos) - Number(t.costos) - Number(t.gastos), 2);
+  }, 60_000);
+
+  it('el cierre del ejercicio salda resultados contra acumulados y el balance sigue cuadrado', async () => {
+    const antes = await request(app).get('/api/estados/balance?hasta=2026-07');
+    const utilidadAntes = Number(antes.body.totales.utilidad_periodo);
+
+    const cierre = await request(app).post('/api/estados/cerrar').send({ hasta: '2026-07' });
+    if (cierre.status !== 201) throw new Error(`Cierre falló: ${JSON.stringify(cierre.body)}`);
+    expect(cierre.status).toBe(201);
+    expect(Number(cierre.body.utilidad)).toBeCloseTo(utilidadAntes, 2);
+
+    const despues = await request(app).get('/api/estados/balance?hasta=2026-07');
+    expect(despues.body.totales.cuadrado).toBe(true);
+    // Tras el cierre no queda utilidad sin cerrar: se trasladó a resultados acumulados
+    expect(Number(despues.body.totales.utilidad_periodo)).toBeCloseTo(0, 2);
   }, 60_000);
 });
 
