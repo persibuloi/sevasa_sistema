@@ -613,6 +613,153 @@ describe('amarres duros por sucursal y bodega (enforcement)', () => {
   }, 60_000);
 });
 
+describe('apertura de saldos iniciales (importador F1)', () => {
+  it('rechaza balanza descuadrada y diferencias contra las cuentas de enlace', async () => {
+    const descuadrada = await request(app).post('/api/apertura/validar').send({
+      fecha: '2026-07-25',
+      balanza: [
+        { cuenta: '1-01-01', debito: 100, credito: 0 },
+        { cuenta: '4-01', debito: 0, credito: 99.99 },
+      ],
+    });
+    expect(descuadrada.status).toBe(200);
+    expect(descuadrada.body.valida).toBe(false);
+    expect(descuadrada.body.errores.join(' ')).toMatch(/NO cuadra/);
+
+    const carteraMal = await request(app).post('/api/apertura/validar').send({
+      fecha: '2026-07-25',
+      balanza: [
+        { cuenta: '1-01-01', debito: 100, credito: 0 },
+        { cuenta: '1-01-03', debito: 50, credito: 0 },
+        { cuenta: '3-02', debito: 0, credito: 150 },
+      ],
+      clientes: [{ nombre: 'Cliente Prueba', saldo: 40 }],
+    });
+    expect(carteraMal.body.valida).toBe(false);
+    expect(carteraMal.body.errores.join(' ')).toMatch(/IGUALES al centavo/);
+  }, 60_000);
+
+  it('carga la apertura completa: asiento + cartera + proveedores + inventario', async () => {
+    const antes = await pool.query(
+      `SELECT COALESCE(cantidad, 0) AS c FROM existencias WHERE producto_id = 1 AND bodega = 'BOD-CEN'`
+    );
+    ctx.existenciaAntesApertura = Number(antes.rows[0]?.c ?? 0);
+
+    const paquete = {
+      fecha: '2026-07-25',
+      crear_terceros: true,
+      balanza: [
+        { cuenta: '1-01-01', debito: 10000, credito: 0 },
+        { cuenta: '1-01-03', debito: 5000, credito: 0 },
+        { cuenta: '1-01-04', debito: 250, credito: 0 },
+        { cuenta: '2-01', debito: 0, credito: 3000 },
+        { cuenta: '3-02', debito: 0, credito: 12250 },
+      ],
+      clientes: [{ ruc: 'AP001', nombre: 'Cliente Apertura', saldo: 5000 }],
+      proveedores: [{ nombre: 'Proveedor Prueba', saldo: 3000 }],
+      inventario: [{ producto: 'PR-1', bodega: 'BOD-CEN', cantidad: 20, costo_unitario: 12.5 }],
+    };
+    const valida = await request(app).post('/api/apertura/validar').send(paquete);
+    expect(valida.body.errores).toEqual([]);
+    expect(valida.body.valida).toBe(true);
+
+    const carga = await request(app).post('/api/apertura/cargar').send(paquete);
+    if (carga.status !== 201) throw new Error(`Carga falló: ${JSON.stringify(carga.body)}`);
+    ctx.aperturaAsiento = carga.body.asiento_id;
+
+    // asiento vivo y cuadrado por el trigger (si no, el COMMIT habría fallado)
+    const estado = await request(app).get('/api/apertura');
+    expect(estado.body.cargada).toBe(true);
+    expect(Number(estado.body.apertura.id)).toBe(Number(ctx.aperturaAsiento));
+
+    // cartera: factura INI-000001 emitida, con el saldo del cliente nuevo
+    const factura = await pool.query(
+      `SELECT f.total, f.estado, t.nombre FROM facturas f JOIN terceros t ON t.id = f.tercero_id
+       WHERE f.origen = 'apertura' AND f.numero_completo = 'INI-000001'`
+    );
+    expect(factura.rowCount).toBe(1);
+    expect(Number(factura.rows[0].total)).toBe(5000);
+    expect(factura.rows[0].nombre).toBe('Cliente Apertura');
+
+    // proveedores: compra INI registrada, pagable
+    const compra = await pool.query(
+      `SELECT total FROM compras WHERE numero_documento LIKE 'INI-%' AND estado = 'registrada'`
+    );
+    expect(compra.rowCount).toBe(1);
+    expect(Number(compra.rows[0].total)).toBe(3000);
+
+    // inventario: existencia subió 20 en BOD-CEN
+    const despues = await pool.query(
+      `SELECT cantidad FROM existencias WHERE producto_id = 1 AND bodega = 'BOD-CEN'`
+    );
+    expect(Number(despues.rows[0].cantidad)).toBe(ctx.existenciaAntesApertura + 20);
+
+    // segunda apertura: bloqueada
+    const otra = await request(app).post('/api/apertura/cargar').send(paquete);
+    expect(otra.status).toBe(400);
+    expect(JSON.stringify(otra.body)).toMatch(/Ya hay una apertura/);
+  }, 120_000);
+
+  it('anular la apertura revierte asiento, cartera, proveedores e inventario', async () => {
+    const r = await request(app).post('/api/apertura/anular').send({ motivo: 'prueba de reversa' });
+    if (r.status !== 200) throw new Error(`Anular falló: ${JSON.stringify(r.body)}`);
+
+    const asiento = await pool.query('SELECT anulado FROM asientos WHERE id = $1', [ctx.aperturaAsiento]);
+    expect(asiento.rows[0].anulado).toBe(true);
+    const facturas = await pool.query(`SELECT count(*)::int AS n FROM facturas WHERE origen = 'apertura' AND estado = 'emitida'`);
+    expect(Number(facturas.rows[0].n)).toBe(0);
+    const compras = await pool.query(`SELECT count(*)::int AS n FROM compras WHERE numero_documento LIKE 'INI-%' AND estado = 'registrada'`);
+    expect(Number(compras.rows[0].n)).toBe(0);
+    const existencia = await pool.query(
+      `SELECT COALESCE(cantidad, 0) AS c FROM existencias WHERE producto_id = 1 AND bodega = 'BOD-CEN'`
+    );
+    expect(Number(existencia.rows[0].c)).toBe(ctx.existenciaAntesApertura);
+
+    const estado = await request(app).get('/api/apertura');
+    expect(estado.body.cargada).toBe(false);
+  }, 60_000);
+
+  it('limpiar datos de prueba: exige la frase, borra transacciones y conserva catálogos y bitácora', async () => {
+    const sinFrase = await request(app).post('/api/apertura/limpiar').send({ confirmacion: 'borrar' });
+    expect(sinFrase.status).toBe(400);
+
+    const r = await request(app).post('/api/apertura/limpiar').send({ confirmacion: 'LIMPIAR PRUEBAS' });
+    expect(r.status).toBe(200);
+    expect(r.body.borrado.asientos).toBeGreaterThan(0);
+
+    const conteos = await pool.query(`
+      SELECT (SELECT count(*)::int FROM asientos) AS asientos,
+             (SELECT count(*)::int FROM facturas) AS facturas,
+             (SELECT count(*)::int FROM movimientos_inventario) AS kardex,
+             (SELECT count(*)::int FROM existencias) AS existencias,
+             (SELECT count(*)::int FROM cuentas) AS cuentas,
+             (SELECT count(*)::int FROM terceros) AS terceros,
+             (SELECT count(*)::int FROM productos) AS productos,
+             (SELECT max(ultimo_numero) FROM series) AS max_numero,
+             (SELECT count(*)::int FROM bitacora WHERE accion = 'limpiar_datos') AS limpiezas`);
+    const c = conteos.rows[0];
+    expect(Number(c.asientos)).toBe(0);
+    expect(Number(c.facturas)).toBe(0);
+    expect(Number(c.kardex)).toBe(0);
+    expect(Number(c.existencias)).toBe(0);
+    expect(Number(c.cuentas)).toBeGreaterThan(0);   // catálogo contable intacto
+    expect(Number(c.terceros)).toBeGreaterThan(0);  // catálogo comercial intacto (sin el checkbox)
+    expect(Number(c.productos)).toBeGreaterThan(0);
+    expect(Number(c.max_numero)).toBe(0);           // consecutivos reiniciados
+    expect(Number(c.limpiezas)).toBe(1);            // la limpieza misma quedó en bitácora
+
+    // y sobre la base limpia, la apertura carga sin estorbos
+    const carga = await request(app).post('/api/apertura/cargar').send({
+      fecha: '2026-07-25',
+      balanza: [
+        { cuenta: '1-01-01', debito: 500, credito: 0 },
+        { cuenta: '3-02', debito: 0, credito: 500 },
+      ],
+    });
+    expect(carga.status).toBe(201);
+  }, 120_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;

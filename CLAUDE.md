@@ -201,7 +201,7 @@ cd app && npm run build          # typecheck + build
 |---|---|---|
 | F0 infraestructura | ✅ | Supabase + Auth + runner de migraciones. Falta deploy Vercel |
 | F1 núcleo contable | ✅ | Cuentas, períodos, asientos manuales, balanza, mayor (API + pantallas) |
-| F1 importador | ⏳ | Espera catálogo y balanza del sistema viejo en `datos-prueba/` — criterio: cuadre al centavo |
+| F1 importador ✅ | ✅ | Contabilidad → Saldos iniciales (`rutas/apertura.ts`): se pegan 4 hojas desde Excel (balanza / cartera clientes / proveedores / inventario), validación en vivo SIN grabar (cuadre al centavo; cartera=CxC, proveedores=CxP, inventario=cuenta Inventario), carga en UNA tx: asiento único tipo 'apertura' + facturas de apertura serie INI por cliente (auxiliares SIN asiento — los recibos se aplican hasta cero) + compras INI por proveedor (pagables en Bancos) + kardex `ajuste_entrada` origen 'apertura' (fija promedio). Anular = contra-asiento + reversas (bloqueado si hay cobros/pagos encima). Terceros faltantes se crean opcionalmente; productos deben existir. Zona de peligro "LIMPIAR PRUEBAS": TRUNCATE de todas las transacciones (catálogos, usuarios y bitácora intactos; consecutivos/promedios/períodos reiniciados; queda en bitácora) — para pasar de pruebas a carga real |
 | F2 facturación | ✅ | Borrador → emitir (row-lock + asiento) → anular. Vendedor opcional |
 | F2 facturas manuales | ✅ | Series tipo 'manual' por sucursal (sin talonarios); el nº del papel se digita al grabar; papel dañado → anulada sin cliente/montos; control de huecos por serie en Configuración |
 | F2 CxC | ✅ | Recibos con aplicaciones, notas de crédito (devolución/rebaja), cartera con antigüedad |

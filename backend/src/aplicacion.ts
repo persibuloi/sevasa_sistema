@@ -25,6 +25,7 @@ import { rutasPolizas } from './rutas/polizas';
 import { rutasEstados } from './rutas/estados';
 import { rutasBitacora } from './rutas/bitacora-rutas';
 import { rutasUsuarios } from './rutas/usuarios';
+import { rutasApertura } from './rutas/apertura';
 
 const app = express();
 // En producciÃ³n CORS_ORIGEN es OBLIGATORIO (ej: https://contable.sevasa.com);
@@ -104,6 +105,7 @@ app.use('/api/polizas', autenticar, rutasPolizas); // importación: prorrateo + 
 app.use('/api/estados', autenticar, rutasEstados); // balance, resultados, cierre
 app.use('/api/bitacora', autenticar, rutasBitacora); // auditoría (solo admin)
 app.use('/api/usuarios', autenticar, rutasUsuarios); // administración de usuarios (solo admin)
+app.use('/api/apertura', autenticar, rutasApertura); // saldos iniciales + limpieza de pruebas
 app.use('/api', autenticar, rutasReportes); // /api/balanza, /api/mayor/:cuenta
 
 // TraducciÃ³n de errores de BD a respuestas claras (los triggers hablan espaÃ±ol)

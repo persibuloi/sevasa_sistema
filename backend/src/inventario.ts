@@ -10,13 +10,14 @@ export interface MovimientoInv {
   bodega: string;
   cantidad: number;        // siempre positiva; el signo lo pone la operación
   usuarioId: string;
-  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste' | 'nota_credito' | 'traslado';
+  origenTipo: 'compra' | 'factura' | 'poliza' | 'ajuste' | 'nota_credito' | 'traslado' | 'apertura';
   origenId: number;
 }
 
 function tipoEntrada(origenTipo: MovimientoInv['origenTipo']): string {
   if (origenTipo === 'poliza') return 'entrada_poliza';
   if (origenTipo === 'nota_credito') return 'devolucion';
+  if (origenTipo === 'apertura') return 'ajuste_entrada';
   return 'entrada_compra';
 }
 
