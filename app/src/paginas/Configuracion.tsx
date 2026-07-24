@@ -527,6 +527,16 @@ function TabSeries() {
                     className="text-sm font-semibold text-slate-500 hover:text-tinta">Control</button>
                   <button onClick={() => setForm({ editando: s.serie, serie: s.serie, sucursal: s.sucursal ?? '', tipo: s.tipo, prefijo: s.prefijo, ultimo_numero: String(s.ultimo_numero), numero_desde: String(s.numero_desde ?? 1), activa: s.activa })}
                     className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
+                  <button onClick={() => void (async () => {
+                    if (!confirm(`¿Borrar la serie ${s.serie}? Solo se puede si no tiene documentos grabados.`)) return;
+                    try {
+                      await api.borrar(`/series/${encodeURIComponent(s.serie)}`);
+                      setAviso(`✅ Serie ${s.serie} borrada`);
+                      await cargar();
+                    } catch (err) {
+                      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'No se pudo borrar'}`);
+                    }
+                  })()} className="text-sm text-rojo/80 hover:text-rojo">Borrar</button>
                 </td>
               </tr>
             ))}

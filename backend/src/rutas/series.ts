@@ -87,6 +87,32 @@ rutasSeries.get('/:serie/control', requierePermiso('facturacion', 'ver'), envolv
   });
 }));
 
+// Borrar serie: SOLO sin documentos grabados (la FK de facturas la protege).
+// La serie INI es del cargador de apertura y las series de recibos/NC
+// apuntadas por config tampoco se tocan.
+rutasSeries.delete('/:serie', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
+  const serie = req.params.serie ?? '';
+  if (serie === 'INI') {
+    res.status(409).json({ error: 'La serie INI es del sistema (numera la apertura de saldos): no se borra' });
+    return;
+  }
+  const enConfig = await pool.query(
+    `SELECT clave FROM config WHERE clave IN ('serie_recibos', 'serie_notas_credito') AND valor = $1`,
+    [serie]
+  );
+  if ((enConfig.rowCount ?? 0) > 0) {
+    res.status(409).json({ error: `La serie ${serie} está configurada en Parámetros (${enConfig.rows[0].clave}): cambiala ahí primero` });
+    return;
+  }
+  const r = await pool.query('DELETE FROM series WHERE serie = $1 RETURNING *', [serie]);
+  if (r.rowCount === 0) {
+    res.status(404).json({ error: 'Serie no existe' });
+    return;
+  }
+  await registrarBitacora(pool, req.usuario!.id, 'borrar_serie', 'series', serie, r.rows[0]);
+  res.json({ ok: true });
+}));
+
 rutasSeries.put('/:serie', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
   const { sucursal, activa, ultimo_numero } = req.body ?? {};
   const antes = await pool.query('SELECT * FROM series WHERE serie = $1', [req.params.serie]);
