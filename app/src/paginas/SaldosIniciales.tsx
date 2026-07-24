@@ -45,6 +45,43 @@ function filas(texto: string): string[][] {
     .filter((cols, i) => !(i === 0 && cols.every((c) => Number.isNaN(limpiarNumero(c)) || c === '')));
 }
 
+/** Lee .xlsx/.xls (primera hoja) o .csv/.txt y lo devuelve como texto tabulado.
+ *  Los CSV de Excel en español suelen venir en ANSI: si no es UTF-8 válido se
+ *  decodifica como windows-1252 para no perder acentos y eñes. */
+async function leerArchivo(archivo: File): Promise<string> {
+  const nombre = archivo.name.toLowerCase();
+  if (nombre.endsWith('.xlsx') || nombre.endsWith('.xls')) {
+    const XLSX = await import('xlsx');
+    const libro = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
+    const hoja = libro.Sheets[libro.SheetNames[0] ?? ''];
+    return hoja ? XLSX.utils.sheet_to_csv(hoja, { FS: '\t', blankrows: false }) : '';
+  }
+  const buffer = await archivo.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder('windows-1252').decode(buffer);
+  }
+}
+
+function BotonArchivo({ alLeer }: { alLeer: (texto: string) => void }) {
+  return (
+    <label className="text-xs font-semibold text-verde cursor-pointer hover:underline shrink-0">
+      📄 subir Excel/CSV
+      <input
+        type="file"
+        accept=".csv,.tsv,.txt,.xls,.xlsx"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void leerArchivo(f).then(alLeer);
+          e.target.value = '';
+        }}
+      />
+    </label>
+  );
+}
+
 export default function SaldosIniciales() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [fecha, setFecha] = useState('');
@@ -178,7 +215,7 @@ export default function SaldosIniciales() {
       {!estado?.cargada && (
         <div className="tarjeta p-6">
           <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-3">
-            Carga de saldos iniciales — pegá cada hoja desde Excel (columnas separadas por tab)
+            Carga de saldos iniciales — subí el Excel/CSV de cada hoja o pegá las columnas directo desde Excel
           </div>
           <div className="grid md:grid-cols-3 gap-4 mb-4">
             <div>
@@ -193,28 +230,40 @@ export default function SaldosIniciales() {
 
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="etiqueta">1 · Balanza (obligatoria) — <span className="cifra">cuenta&nbsp;·&nbsp;débito&nbsp;·&nbsp;crédito</span></label>
+              <div className="flex items-end justify-between gap-2">
+                <label className="etiqueta">1 · Balanza (obligatoria) — <span className="cifra">cuenta&nbsp;·&nbsp;débito&nbsp;·&nbsp;crédito</span></label>
+                <BotonArchivo alLeer={setTxtBalanza} />
+              </div>
               <textarea value={txtBalanza} onChange={(e) => setTxtBalanza(e.target.value)} rows={9}
                 placeholder={'1-01-01\t50000.00\t\n1-01-03\t120000.00\t\n2-01\t\t80000.00\n3-01\t\t90000.00'}
                 className="entrada cifra text-[12px] leading-5" />
               <p className="text-xs text-slate-400 mt-1">Solo cuentas de detalle. Débitos = créditos al centavo (igual que la balanza del sistema viejo).</p>
             </div>
             <div>
-              <label className="etiqueta">2 · Cartera de clientes — <span className="cifra">ruc&nbsp;·&nbsp;nombre&nbsp;·&nbsp;saldo</span></label>
+              <div className="flex items-end justify-between gap-2">
+                <label className="etiqueta">2 · Cartera de clientes — <span className="cifra">ruc&nbsp;·&nbsp;nombre&nbsp;·&nbsp;saldo</span></label>
+                <BotonArchivo alLeer={setTxtClientes} />
+              </div>
               <textarea value={txtClientes} onChange={(e) => setTxtClientes(e.target.value)} rows={9}
                 placeholder={'J0310001\tJuan Pérez\t100000.00\nJ0310002\tFerretería El Clavo\t54300.50'}
                 className="entrada cifra text-[12px] leading-5" />
               <p className="text-xs text-slate-400 mt-1">Un saldo global por cliente (se cobra hasta llegar a cero). La suma debe ser IGUAL a la cuenta CxC de la balanza. Sin RUC: <span className="cifra">nombre·saldo</span>.</p>
             </div>
             <div>
-              <label className="etiqueta">3 · Saldos a proveedores — <span className="cifra">ruc&nbsp;·&nbsp;nombre&nbsp;·&nbsp;saldo</span></label>
+              <div className="flex items-end justify-between gap-2">
+                <label className="etiqueta">3 · Saldos a proveedores — <span className="cifra">ruc&nbsp;·&nbsp;nombre&nbsp;·&nbsp;saldo</span></label>
+                <BotonArchivo alLeer={setTxtProveedores} />
+              </div>
               <textarea value={txtProveedores} onChange={(e) => setTxtProveedores(e.target.value)} rows={7}
                 placeholder={'J0450001\tDistribuidora Norte\t80000.00'}
                 className="entrada cifra text-[12px] leading-5" />
               <p className="text-xs text-slate-400 mt-1">La suma debe ser IGUAL a la cuenta CxP. Quedan pagables desde Bancos.</p>
             </div>
             <div>
-              <label className="etiqueta">4 · Inventario — <span className="cifra">código&nbsp;·&nbsp;bodega&nbsp;·&nbsp;cantidad&nbsp;·&nbsp;costo</span></label>
+              <div className="flex items-end justify-between gap-2">
+                <label className="etiqueta">4 · Inventario — <span className="cifra">código&nbsp;·&nbsp;bodega&nbsp;·&nbsp;cantidad&nbsp;·&nbsp;costo</span></label>
+                <BotonArchivo alLeer={setTxtInventario} />
+              </div>
               <textarea value={txtInventario} onChange={(e) => setTxtInventario(e.target.value)} rows={7}
                 placeholder={'PR-100\tBOD-CEN\t50\t230.50'}
                 className="entrada cifra text-[12px] leading-5" />
