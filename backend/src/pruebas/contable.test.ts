@@ -760,6 +760,48 @@ describe('apertura de saldos iniciales (importador F1)', () => {
   }, 120_000);
 });
 
+describe('convertidor de la balanza detallada del sistema viejo', () => {
+  it('separa clientes/proveedores/inventario, crea el catálogo y cuadra con ajuste', async () => {
+    const r = await request(app).post('/api/apertura/convertir-detalle').send({
+      filas: [
+        { grupo: '1 1 1', grupo_nombre: 'CAJAS', codigo: '1 1 1 01', nombre: 'CAJA CENTRAL', final: 1000 },
+        { grupo: '1 1 4', grupo_nombre: 'CUENTAS X COBRAR', codigo: '1 1 4 2 1', nombre: 'CLIENTE VIEJO UNO', final: 500 },
+        { grupo: '1 1 4', grupo_nombre: 'CUENTAS X COBRAR', codigo: '1 1 4 2 2', nombre: 'RESIDUO CARTERA', final: -0.01 },
+        { grupo: '1 1 3', grupo_nombre: 'INVENTARIOS', codigo: '1 1 3 01 5', nombre: 'PRODUCTO VIEJO X', final: 250 },
+        { grupo: '2 1 1', grupo_nombre: 'OBL. CTO. PZO.', codigo: '2 1 1 1 2 2', nombre: 'INTCOMEX', final: -800 },
+        { grupo: '2 1 1', grupo_nombre: 'OBL. CTO. PZO.', codigo: '2 1 1 4 58', nombre: 'INSS LABORAL', final: -100 },
+        { grupo: '3  09', grupo_nombre: 'CAPITAL CONTABLE', codigo: '3  09 01 1', nombre: 'CAPITAL SOCIAL', final: -849.99 },
+      ],
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.clientes).toEqual([{ nombre: 'CLIENTE VIEJO UNO', saldo: 500 }]);
+    expect(r.body.proveedores).toEqual([{ nombre: 'INTCOMEX', saldo: 800 }]);
+    expect(r.body.totales.inventario).toBe(250);
+
+    const porCuenta = new Map(
+      (r.body.balanza as Array<{ cuenta: string; debito: number; credito: number }>).map((b) => [b.cuenta, b])
+    );
+    expect(porCuenta.get('1-1-4')?.debito).toBe(500);      // enlace CxC = cartera exacta
+    expect(porCuenta.get('2-1-1-1')?.credito).toBe(800);   // enlace CxP = proveedores exactos
+    expect(porCuenta.get('1-1-3')?.debito).toBe(250);      // inventario global
+    expect(porCuenta.get('1-1-1-01')?.debito).toBe(1000);
+    expect(porCuenta.get('2-1-1-4-58')?.credito).toBe(100);
+    expect(porCuenta.get('3-99')?.credito).toBe(0.01);     // residuo descartado absorbido
+
+    // la balanza convertida cuadra al centavo
+    const filas = r.body.balanza as Array<{ debito: number; credito: number }>;
+    const deb = filas.reduce((t, b) => t + Math.round(b.debito * 100), 0);
+    const cre = filas.reduce((t, b) => t + Math.round(b.credito * 100), 0);
+    expect(deb).toBe(cre);
+
+    // catálogo creado con el código viejo en guiones y config apuntando a los enlaces
+    const cuenta = await pool.query(`SELECT tipo, es_detalle FROM cuentas WHERE codigo = '2-1-1-4-58'`);
+    expect(cuenta.rows[0]).toEqual({ tipo: 'pasivo', es_detalle: true });
+    const cfg = await pool.query(`SELECT valor FROM config WHERE clave = 'cuenta_cxc'`);
+    expect(cfg.rows[0].valor).toBe('1-1-4');
+  }, 60_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;

@@ -498,6 +498,178 @@ rutasApertura.post('/anular', requierePermiso('contabilidad', 'cerrar'), envolve
   res.json({ ok: true, contra_asiento: resultado.contra });
 }));
 
+/* ------------------- convertir la balanza detallada del sistema viejo */
+
+interface FilaDetalle {
+  grupo: string;        // 'Cod.Nivel 1'  ej. '1 1 4'
+  grupo_nombre: string; // 'CUENTAS X COBRAR'
+  codigo: string;       // '1 1 4 2 2 1 216'
+  nombre: string;
+  final: number;        // Balance Final firmado: + deudor / − acreedor
+}
+
+const aGuiones = (codigo: string): string => codigo.trim().split(/\s+/).join('-');
+
+function tipoCuentaVieja(codigo: string, grupoNombre: string): string {
+  const primero = codigo.trim()[0];
+  if (primero === '1') return 'activo';
+  if (primero === '2') return 'pasivo';
+  if (primero === '3') return 'capital';
+  if (primero === '4') return 'ingreso';
+  if (/COSTO/i.test(grupoNombre)) return 'costo';
+  return 'gasto';
+}
+
+/** Convierte la balanza de detalle exportada del sistema anterior en el
+ *  paquete de apertura: los CLIENTES (grupo CUENTAS X COBRAR) y PROVEEDORES
+ *  (subgrupo 2 1 1 1) se vuelven auxiliares; el INVENTARIO se agrega a una
+ *  cuenta global (el kardex necesita el reporte de existencias aparte); el
+ *  resto de cuentas se CREA en el catálogo con el código viejo en guiones.
+ *  Los residuos (±centavos) van a una cuenta de ajuste para cuadrar exacto. */
+rutasApertura.post('/convertir-detalle', requierePermiso('contabilidad', 'cerrar'), envolver(async (req, res) => {
+  const { filas: crudas } = (req.body ?? {}) as { filas?: FilaDetalle[] };
+  if (!Array.isArray(crudas) || crudas.length === 0) {
+    res.status(400).json({ error: 'No llegaron filas de la balanza' });
+    return;
+  }
+  const avisos: string[] = [];
+  const clientes: Array<{ nombre: string; saldo: number }> = [];
+  const proveedores: Array<{ nombre: string; saldo: number }> = [];
+  const cuentasNuevas = new Map<string, { nombre: string; tipo: string; grupo: string; grupoNombre: string }>();
+  const balanza: Array<{ cuenta: string; cent: number }> = [];
+  let cxcCent = 0;
+  let cxpCent = 0;
+  let invCent = 0;
+  let residuoCent = 0;
+
+  for (const f of crudas) {
+    const final = Number(f.final);
+    if (!Number.isFinite(final)) continue;
+    const cent = Math.round(final * 100); // firmado: + deudor / − acreedor
+    const codigo = String(f.codigo ?? '').trim();
+    const nombre = String(f.nombre ?? '').trim();
+    const grupoNombre = String(f.grupo_nombre ?? '').trim().toUpperCase();
+    const esProveedor = /^2\s+1\s+1\s+1\s/.test(codigo);
+
+    if (/CUENTAS X COBRAR$/.test(grupoNombre) || /^1\s+1\s+4\s/.test(codigo)) {
+      if (cent > 0) { clientes.push({ nombre, saldo: cent / 100 }); cxcCent += cent; }
+      else residuoCent += cent; // residuos y contra-saldos de la cartera
+      continue;
+    }
+    if (esProveedor) {
+      if (cent < 0) { proveedores.push({ nombre, saldo: -cent / 100 }); cxpCent += -cent; }
+      else residuoCent += cent;
+      continue;
+    }
+    if (/INVENTARIO/.test(grupoNombre)) {
+      invCent += cent; // valor global; el detalle por producto vive en el kardex
+      continue;
+    }
+    if (cent === 0) continue; // cuenta sin saldo: no estorba en la apertura
+    const nuevo = aGuiones(codigo);
+    if (!nuevo || cuentasNuevas.has(nuevo)) { residuoCent += cent; continue; }
+    cuentasNuevas.set(nuevo, {
+      nombre: nombre || nuevo,
+      tipo: tipoCuentaVieja(codigo, grupoNombre),
+      grupo: aGuiones(String(f.grupo ?? '')),
+      grupoNombre: String(f.grupo_nombre ?? '').trim(),
+    });
+    balanza.push({ cuenta: nuevo, cent });
+  }
+
+  // Cuentas de enlace agregadas (los auxiliares NO se crean como cuentas)
+  const ENLACES: Array<{ codigo: string; nombre: string; tipo: string; cent: number; clave: string }> = [
+    { codigo: '1-1-4', nombre: 'CUENTAS POR COBRAR CLIENTES', tipo: 'activo', cent: cxcCent, clave: 'cuenta_cxc' },
+    { codigo: '2-1-1-1', nombre: 'PROVEEDORES', tipo: 'pasivo', cent: -cxpCent, clave: 'cuenta_cxp' },
+    { codigo: '1-1-3', nombre: 'INVENTARIOS', tipo: 'activo', cent: invCent, clave: 'cuenta_inventario' },
+  ];
+  for (const e of ENLACES) {
+    if (e.cent !== 0) balanza.push({ cuenta: e.codigo, cent: e.cent });
+  }
+
+  // Los residuos descartados NO entran; la cuenta de ajuste absorbe el
+  // descuadre que dejan (más cualquier centavo de origen) y todo cierra exacto.
+  const suma = balanza.reduce((t, b) => t + b.cent, 0);
+  if (suma !== 0) balanza.push({ cuenta: '3-99', cent: -suma });
+  void residuoCent; // informativo: se reporta en los avisos vía la cuenta 3-99
+
+  const usuario = req.usuario!.id;
+  await enTransaccion(async (bd: PoolClient) => {
+    // Encabezados de grupo (es_detalle = false) para que el catálogo tenga forma
+    const grupos = new Map<string, string>();
+    for (const c of cuentasNuevas.values()) {
+      if (c.grupo && !grupos.has(c.grupo)) grupos.set(c.grupo, c.grupoNombre || c.grupo);
+    }
+    for (const [codigo, nombre] of grupos) {
+      await bd.query(
+        `INSERT INTO cuentas (codigo, nombre, tipo, nivel, es_detalle)
+         VALUES ($1, $2, $3, 1, false) ON CONFLICT (codigo) DO NOTHING`,
+        [codigo, nombre, tipoCuentaVieja(codigo.replace(/-/g, ' '), nombre)]
+      );
+    }
+    for (const [codigo, c] of cuentasNuevas) {
+      await bd.query(
+        `INSERT INTO cuentas (codigo, nombre, tipo, padre, nivel, es_detalle)
+         VALUES ($1, $2, $3, $4, 2, true) ON CONFLICT (codigo) DO NOTHING`,
+        [codigo, c.nombre, c.tipo, grupos.has(c.grupo) ? c.grupo : null]
+      );
+    }
+    for (const e of ENLACES) {
+      await bd.query(
+        `INSERT INTO cuentas (codigo, nombre, tipo, nivel, es_detalle)
+         VALUES ($1, $2, $3, 1, true) ON CONFLICT (codigo) DO NOTHING`,
+        [e.codigo, e.nombre, e.tipo]
+      );
+      await bd.query(`UPDATE config SET valor = $2 WHERE clave = $1`, [e.clave, e.codigo]);
+    }
+    await bd.query(
+      `INSERT INTO cuentas (codigo, nombre, tipo, nivel, es_detalle)
+       VALUES ('3-99', 'AJUSTES DE APERTURA (RESIDUOS SISTEMA ANTERIOR)', 'capital', 1, true)
+       ON CONFLICT (codigo) DO NOTHING`
+    );
+    await registrarBitacora(bd, usuario, 'convertir_balanza', 'cuentas', 'importador', {
+      filas: crudas.length,
+      cuentas_creadas: cuentasNuevas.size,
+      clientes: clientes.length,
+      proveedores: proveedores.length,
+      inventario: invCent / 100,
+    });
+  });
+
+  avisos.push(
+    `Inventario global C$ ${(invCent / 100).toFixed(2)} en la cuenta 1-1-3 — para armar el KARDEX ` +
+    `(cantidades y costos por producto/bodega) subí también el reporte de existencias en la hoja 4`
+  );
+  avisos.push(
+    'Revisá en Configuración → Parámetros las cuentas de enlace restantes con el catálogo nuevo: ' +
+    'cuenta_caja, cuenta_ventas, cuenta_iva, cuenta_iva_acreditable, cuenta_costo_ventas y cuenta_resultados_acumulados'
+  );
+  const sospechosas = crudas.filter((f) => /^\d+[.,]\d+$/.test(String(f.grupo ?? '').trim())).length;
+  if (sospechosas > 0) {
+    avisos.push(
+      `${sospechosas} fila(s) del export vienen corruptas (la columna Cod.Nivel 1 trae un número) — ` +
+      `revisalas en el Excel o re-exportá; su efecto cae en la cuenta de ajuste 3-99`
+    );
+  }
+  const ajusteFinal = balanza.find((b) => b.cuenta === '3-99');
+  if (ajusteFinal) {
+    avisos.push(`Residuos y descuadre del sistema anterior absorbidos en la cuenta 3-99: C$ ${(Math.abs(ajusteFinal.cent) / 100).toFixed(2)}`);
+  }
+
+  res.json({
+    balanza: balanza.map((b) => ({
+      cuenta: b.cuenta,
+      debito: b.cent > 0 ? b.cent / 100 : 0,
+      credito: b.cent < 0 ? -b.cent / 100 : 0,
+    })),
+    clientes,
+    proveedores,
+    cuentas_creadas: cuentasNuevas.size,
+    avisos,
+    totales: { cartera: cxcCent / 100, proveedores: cxpCent / 100, inventario: invCent / 100 },
+  });
+}));
+
 /* ------------------------------------------- limpiar datos de prueba */
 
 /** Borra TODAS las transacciones (asientos, documentos, kardex) dejando los

@@ -186,6 +186,51 @@ export default function SaldosIniciales() {
     }
   }
 
+  /** Importa la balanza DETALLADA exportada del sistema viejo (detalle.xls):
+   *  el backend separa clientes/proveedores/inventario, crea el catálogo de
+   *  cuentas con el código viejo en guiones y devuelve las hojas armadas. */
+  async function importarBalanzaVieja(archivo: File) {
+    setAviso('');
+    setOcupado(true);
+    try {
+      const XLSX = await import('xlsx');
+      const libro = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
+      const ws = libro.Sheets[libro.SheetNames[0] ?? ''];
+      const crudas: string[][] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) : [];
+      const encabezado = crudas.findIndex((r) => String(r[0] ?? '').toLowerCase().includes('cod.nivel'));
+      if (encabezado === -1) {
+        setAviso('❌ No parece la balanza detallada: falta la columna "Cod.Nivel 1"');
+        return;
+      }
+      const filasDetalle = crudas.slice(encabezado + 1)
+        .filter((r) => String(r[2] ?? '').trim() !== '')
+        .map((r) => ({
+          grupo: String(r[0] ?? ''), grupo_nombre: String(r[1] ?? ''),
+          codigo: String(r[2] ?? ''), nombre: String(r[3] ?? ''),
+          final: limpiarNumero(String(r[8] ?? '0')),
+        }));
+      const r = await api.post<{
+        balanza: Array<{ cuenta: string; debito: number; credito: number }>;
+        clientes: Array<{ nombre: string; saldo: number }>;
+        proveedores: Array<{ nombre: string; saldo: number }>;
+        cuentas_creadas: number;
+        avisos: string[];
+      }>('/apertura/convertir-detalle', { filas: filasDetalle });
+      setTxtBalanza(r.balanza.map((b) => `${b.cuenta}\t${b.debito || ''}\t${b.credito || ''}`).join('\n'));
+      setTxtClientes(r.clientes.map((c) => `${c.nombre}\t${c.saldo}`).join('\n'));
+      setTxtProveedores(r.proveedores.map((p) => `${p.nombre}\t${p.saldo}`).join('\n'));
+      setResultado(null);
+      setAviso([
+        `✅ Balanza convertida: ${r.balanza.length} cuentas (${r.cuentas_creadas} creadas en el catálogo), ${r.clientes.length} clientes, ${r.proveedores.length} proveedores`,
+        ...r.avisos.map((a) => `⚠ ${a}`),
+      ].join('\n'));
+    } catch (e) {
+      setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo convertir la balanza'}`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   /** Sube la plantilla llena: reparte sus hojas en los 4 bloques de un golpe. */
   async function subirPlantilla(archivo: File) {
     setAviso('');
@@ -284,7 +329,7 @@ export default function SaldosIniciales() {
 
   return (
     <div className="max-w-5xl space-y-4">
-      {aviso && <p className="text-sm">{aviso}</p>}
+      {aviso && <p className="text-sm whitespace-pre-line">{aviso}</p>}
 
       {/* ----- estado actual ----- */}
       {estado?.cargada && estado.apertura && (
@@ -313,7 +358,16 @@ export default function SaldosIniciales() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
               Carga de saldos iniciales
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <label className="boton-suave cursor-pointer">
+                🪄 Importar balanza del sistema viejo
+                <input type="file" accept=".xls,.xlsx" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importarBalanzaVieja(f);
+                    e.target.value = '';
+                  }} />
+              </label>
               <button onClick={() => void descargarPlantilla()} disabled={ocupado} className="boton-suave">
                 ⬇ Descargar plantilla Excel
               </button>
