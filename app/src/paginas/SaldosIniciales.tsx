@@ -97,7 +97,9 @@ export default function SaldosIniciales() {
   const [fraseLimpiar, setFraseLimpiar] = useState('');
   const [incluirCatalogo, setIncluirCatalogo] = useState(false);
   const [bodegas, setBodegas] = useState<Bodega[]>([]);
-  const [reporteExi, setReporteExi] = useState<{ encabezado: string[]; filas: string[][]; candidatas: string[] } | null>(null);
+  const [reporteExi, setReporteExi] = useState<{
+    encabezado: string[]; filas: string[][]; candidatas: string[]; formato: 'ancho' | 'largo';
+  } | null>(null);
   const [mapeo, setMapeo] = useState<Record<string, string>>({});
   const [tipoCambio, setTipoCambio] = useState('');
 
@@ -244,7 +246,10 @@ export default function SaldosIniciales() {
     'precio_dolar', 'garantia_meses', 'costo', 'costo_dolar', 'nivel2', 'nivel3', 'nivel4',
   ]);
 
-  /** Lee el reporte de existencias del sistema viejo y prepara el mapeo. */
+  /** Lee el reporte de existencias del sistema viejo y prepara el mapeo.
+   *  Soporta dos formatos:
+   *   - ANCHO: una fila por producto, una columna por ubicación (CODIGO_DETALLE, COSTO en C$)
+   *   - LARGO: una fila por producto-bodega (CODIGO, CODIGO_BODEGA, EXISTENCIA, COSTO_DOLAR) */
   async function leerReporteExistencias(archivo: File) {
     setAviso('');
     try {
@@ -252,16 +257,29 @@ export default function SaldosIniciales() {
       const libro = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
       const ws = libro.Sheets[libro.SheetNames[0] ?? ''];
       const crudas: string[][] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) : [];
-      const iEnc = crudas.findIndex((r) => r.some((c) => String(c).trim().toUpperCase() === 'CODIGO_DETALLE'));
-      if (iEnc === -1) {
-        setAviso('❌ No parece el reporte de existencias: falta la columna CODIGO_DETALLE');
+      const tiene = (fila: string[], col: string) => fila.some((c) => String(c).trim().toUpperCase() === col);
+      const iLargo = crudas.findIndex((r) => tiene(r, 'CODIGO_BODEGA'));
+      const iAncho = crudas.findIndex((r) => tiene(r, 'CODIGO_DETALLE'));
+      if (iLargo !== -1) {
+        const encabezado = crudas[iLargo]!.map((c) => String(c).trim());
+        const iBodega = encabezado.findIndex((c) => c.toUpperCase() === 'CODIGO_BODEGA');
+        const filasDatos = crudas.slice(iLargo + 1).filter((r) => String(r[0] ?? '').trim() !== '');
+        const candidatas = [...new Set(filasDatos.map((r) => String(r[iBodega] ?? '').trim()).filter(Boolean))]
+          .sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+        setReporteExi({ encabezado, filas: filasDatos, candidatas, formato: 'largo' });
+        setMapeo({});
+        setAviso(`✅ Reporte leído (una fila por producto-bodega): ${filasDatos.length} filas, ${candidatas.length} bodegas del sistema viejo. Mapeá cada código de bodega y poné el tipo de cambio (los costos vienen en US$).`);
         return;
       }
-      const encabezado = crudas[iEnc]!.map((c) => String(c).trim());
-      const candidatas = encabezado.filter((c) => c !== '' && !NO_BODEGA.has(c.toLowerCase()));
-      setReporteExi({ encabezado, filas: crudas.slice(iEnc + 1), candidatas });
-      setMapeo({});
-      setAviso(`✅ Reporte leído: ${crudas.length - iEnc - 1} productos. Ahora mapeá cada columna a su bodega (las que dejés en blanco se ignoran).`);
+      if (iAncho !== -1) {
+        const encabezado = crudas[iAncho]!.map((c) => String(c).trim());
+        const candidatas = encabezado.filter((c) => c !== '' && !NO_BODEGA.has(c.toLowerCase()));
+        setReporteExi({ encabezado, filas: crudas.slice(iAncho + 1), candidatas, formato: 'ancho' });
+        setMapeo({});
+        setAviso(`✅ Reporte leído: ${crudas.length - iAncho - 1} productos. Ahora mapeá cada columna a su bodega (las que dejés en blanco se ignoran).`);
+        return;
+      }
+      setAviso('❌ No parece un reporte de existencias: falta la columna CODIGO_DETALLE o CODIGO_BODEGA');
     } catch {
       setAviso('❌ No se pudo leer el reporte de existencias');
     }
@@ -304,33 +322,80 @@ export default function SaldosIniciales() {
     setOcupado(true);
     try {
       const idx = (nombre: string) => reporteExi.encabezado.findIndex((c) => c.toLowerCase() === nombre);
-      const iCodigo = idx('codigo_detalle');
-      const iNombre = idx('nombre');
-      const iCosto = idx('costo');
-      const iPrecio = idx('precio_dolar');
-      const iCategoria = idx('nivel2');
       const tc = limpiarNumero(tipoCambio);
-      const filasEnvio = reporteExi.filas
-        .filter((r) => String(r[iCodigo] ?? '').trim() !== '')
-        .map((r) => {
-          const porBodega = new Map<string, number>();
-          for (const [col, bodega] of columnas) {
-            const iCol = reporteExi.encabezado.indexOf(col);
-            const cantidad = limpiarNumero(String(r[iCol] ?? '0'));
-            if (Number.isFinite(cantidad) && cantidad > 0) {
-              porBodega.set(bodega, (porBodega.get(bodega) ?? 0) + cantidad);
-            }
-          }
-          const precioDolar = iPrecio >= 0 ? limpiarNumero(String(r[iPrecio] ?? '0')) : 0;
-          return {
-            codigo: String(r[iCodigo] ?? '').trim(),
-            nombre: String(r[iNombre] ?? '').trim(),
-            categoria: iCategoria >= 0 ? String(r[iCategoria] ?? '').trim() : '',
-            costo: limpiarNumero(String(r[iCosto] ?? '0')),
-            precio: tc > 0 && precioDolar > 0 ? Math.round(precioDolar * tc * 100) / 100 : undefined,
-            existencias: [...porBodega].map(([bodega, cantidad]) => ({ bodega, cantidad })),
+      let filasEnvio: Array<{
+        codigo: string; nombre: string; categoria?: string; costo: number;
+        precio?: number; existencias: Array<{ bodega: string; cantidad: number }>;
+      }>;
+
+      if (reporteExi.formato === 'largo') {
+        // Una fila por producto-bodega: CODIGO · NOMBRE · CODIGO_BODEGA · EXISTENCIA · COSTO_DOLAR (o COSTO en C$)
+        const iCodigo = idx('codigo');
+        const iNombre = idx('nombre');
+        const iBodega = idx('codigo_bodega');
+        const iCantidad = idx('existencia');
+        const iCostoCS = idx('costo');
+        const iCostoUS = idx('costo_dolar');
+        const enDolares = iCostoCS === -1;
+        if (enDolares && !(tc > 0)) {
+          setAviso('❌ Los costos vienen en US$ (COSTO_DOLAR): poné el tipo de cambio para convertirlos a córdobas');
+          return;
+        }
+        const mapa = new Map(columnas);
+        const porProducto = new Map<string, {
+          nombre: string; valor: number; cantidadTotal: number; porBodega: Map<string, number>;
+        }>();
+        for (const r of reporteExi.filas) {
+          const codigo = String(r[iCodigo] ?? '').trim();
+          const bodegaVieja = String(r[iBodega] ?? '').trim();
+          const bodega = mapa.get(bodegaVieja);
+          if (!codigo || !bodega) continue; // bodegas sin mapear se ignoran
+          const cantidad = limpiarNumero(String(r[iCantidad] ?? '0'));
+          if (!(cantidad > 0)) continue;
+          const costoFila = limpiarNumero(String(r[enDolares ? iCostoUS : iCostoCS] ?? '0'));
+          const costoCS = enDolares ? costoFila * tc : costoFila;
+          const p = porProducto.get(codigo) ?? {
+            nombre: String(r[iNombre] ?? '').trim(), valor: 0, cantidadTotal: 0, porBodega: new Map<string, number>(),
           };
-        });
+          p.valor += cantidad * costoCS;
+          p.cantidadTotal += cantidad;
+          p.porBodega.set(bodega, (p.porBodega.get(bodega) ?? 0) + cantidad);
+          porProducto.set(codigo, p);
+        }
+        filasEnvio = [...porProducto].map(([codigo, p]) => ({
+          codigo,
+          nombre: p.nombre,
+          costo: p.cantidadTotal > 0 ? Math.round((p.valor / p.cantidadTotal) * 10000) / 10000 : 0,
+          existencias: [...p.porBodega].map(([bodega, cantidad]) => ({ bodega, cantidad })),
+        }));
+      } else {
+        const iCodigo = idx('codigo_detalle');
+        const iNombre = idx('nombre');
+        const iCosto = idx('costo');
+        const iPrecio = idx('precio_dolar');
+        const iCategoria = idx('nivel2');
+        filasEnvio = reporteExi.filas
+          .filter((r) => String(r[iCodigo] ?? '').trim() !== '')
+          .map((r) => {
+            const porBodega = new Map<string, number>();
+            for (const [col, bodega] of columnas) {
+              const iCol = reporteExi.encabezado.indexOf(col);
+              const cantidad = limpiarNumero(String(r[iCol] ?? '0'));
+              if (Number.isFinite(cantidad) && cantidad > 0) {
+                porBodega.set(bodega, (porBodega.get(bodega) ?? 0) + cantidad);
+              }
+            }
+            const precioDolar = iPrecio >= 0 ? limpiarNumero(String(r[iPrecio] ?? '0')) : 0;
+            return {
+              codigo: String(r[iCodigo] ?? '').trim(),
+              nombre: String(r[iNombre] ?? '').trim(),
+              categoria: iCategoria >= 0 ? String(r[iCategoria] ?? '').trim() : '',
+              costo: limpiarNumero(String(r[iCosto] ?? '0')),
+              precio: tc > 0 && precioDolar > 0 ? Math.round(precioDolar * tc * 100) / 100 : undefined,
+              existencias: [...porBodega].map(([bodega, cantidad]) => ({ bodega, cantidad })),
+            };
+          });
+      }
       const r = await api.post<{
         inventario: Array<{ producto: string; bodega: string; cantidad: number; costo_unitario: number }>;
         total: number; productos_creados: number; lineas: number; avisos: string[];
@@ -573,11 +638,14 @@ export default function SaldosIniciales() {
           {reporteExi && (
             <div className="mt-5 rounded-xl border border-borde p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-2">
-                Mapeo de columnas del reporte → bodegas del sistema
+                {reporteExi.formato === 'largo'
+                  ? 'Mapeo de bodegas del sistema viejo → bodegas del sistema'
+                  : 'Mapeo de columnas del reporte → bodegas del sistema'}
               </div>
               <p className="text-sm text-slate-500 mb-3">
-                Cada columna del reporte es una ubicación del sistema viejo. Elegí a qué bodega nueva va cada una
-                (varias columnas pueden caer en la misma bodega — se suman). Las que dejés en blanco se ignoran.
+                {reporteExi.formato === 'largo'
+                  ? 'Cada número es un código de bodega del sistema viejo (columna CODIGO_BODEGA). Elegí a qué bodega nueva va cada uno (varios pueden caer en la misma — se suman). Los que dejés en blanco se ignoran.'
+                  : 'Cada columna del reporte es una ubicación del sistema viejo. Elegí a qué bodega nueva va cada una (varias columnas pueden caer en la misma bodega — se suman). Las que dejés en blanco se ignoran.'}
               </p>
               {bodegas.length === 0 && (
                 <p className="text-sm text-rojo mb-3">No hay bodegas activas: crealas primero en Configuración → Bodegas.</p>
@@ -595,7 +663,9 @@ export default function SaldosIniciales() {
               </div>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="etiqueta">Tipo de cambio (para precios en US$, opcional)</label>
+                  <label className="etiqueta">
+                    {reporteExi.formato === 'largo' ? 'Tipo de cambio (OBLIGATORIO: costos en US$)' : 'Tipo de cambio (para precios en US$, opcional)'}
+                  </label>
                   <input value={tipoCambio} onChange={(e) => setTipoCambio(e.target.value)} placeholder="36.80" className="entrada cifra max-w-40" />
                 </div>
                 <button onClick={() => void convertirExistencias()} disabled={ocupado} className="boton-primario">
