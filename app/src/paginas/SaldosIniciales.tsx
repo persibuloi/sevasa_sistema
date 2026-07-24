@@ -182,9 +182,9 @@ export default function SaldosIniciales() {
         ...proveedores.filter((p) => p.activo).map((p) => [p.ruc ?? '', p.nombre, '']),
       ], [16, 45, 14]), 'Proveedores');
       XLSX.utils.book_append_sheet(libro, hoja([
-        ['codigo', 'bodega', 'cantidad', 'costo_unitario', 'nombre (referencia)'],
-        ...productos.filter((p) => p.activo).map((p) => [p.codigo, '', '', '', p.nombre]),
-      ], [16, 12, 12, 15, 45]), 'Inventario');
+        ['codigo', 'bodega', 'cantidad', 'costo_unitario'],
+        ...productos.filter((p) => p.activo).map((p) => [p.codigo, '', '', '']),
+      ], [16, 12, 12, 15]), 'Inventario');
       XLSX.writeFile(libro, 'Plantilla-Saldos-Iniciales-SEVASA.xlsx');
     } catch (e) {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo generar la plantilla'}`);
