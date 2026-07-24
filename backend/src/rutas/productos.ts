@@ -9,6 +9,36 @@ export const rutasProductos = Router();
 rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
   // ?bodega=BOD-CEN agrega la existencia de ESA bodega (para el filtro por tienda)
   const bodega = typeof req.query.bodega === 'string' && req.query.bodega !== '' ? req.query.bodega : null;
+
+  // Con ?pagina= responde paginado del servidor: {productos, total} — el
+  // catálogo real trae miles de filas y cargarlo entero pone lento todo.
+  if (req.query.pagina !== undefined) {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const pagina = Math.max(1, Number(req.query.pagina) || 1);
+    const porPagina = Math.min(200, Math.max(1, Number(req.query.por_pagina) || 50));
+    const parametros: unknown[] = [porPagina, (pagina - 1) * porPagina];
+    let filtro = '';
+    if (q) {
+      parametros.push(`%${q}%`);
+      filtro = `WHERE p.codigo ILIKE $3 OR p.nombre ILIKE $3 OR p.categoria ILIKE $3`;
+    }
+    const r = await pool.query(
+      `SELECT p.*, COALESCE(e.existencia, 0) AS existencia, count(*) OVER() AS total
+       FROM productos p
+       LEFT JOIN (
+         SELECT producto_id, SUM(cantidad) AS existencia FROM existencias GROUP BY producto_id
+       ) e ON e.producto_id = p.id
+       ${filtro}
+       ORDER BY p.codigo LIMIT $1 OFFSET $2`,
+      parametros
+    );
+    res.json({
+      productos: r.rows.map(({ total, ...p }) => p),
+      total: Number(r.rows[0]?.total ?? 0),
+    });
+    return;
+  }
+
   const r = await pool.query(
     `SELECT p.*,
             COALESCE(e.existencia, 0) AS existencia,
@@ -20,6 +50,18 @@ rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (r
      LEFT JOIN existencias eb ON eb.producto_id = p.id AND eb.bodega = $1
      ORDER BY p.codigo`,
     [bodega]
+  );
+  res.json(r.rows);
+}));
+
+// Existencias de UN producto, bodega por bodega (para el detalle en pantalla)
+rutasProductos.get('/:id/existencias', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
+  const r = await pool.query(
+    `SELECT e.bodega, b.nombre AS bodega_nombre, b.sucursal, e.cantidad
+     FROM existencias e JOIN bodegas b ON b.codigo = e.bodega
+     WHERE e.producto_id = $1 AND e.cantidad <> 0
+     ORDER BY e.bodega`,
+    [req.params.id]
   );
   res.json(r.rows);
 }));

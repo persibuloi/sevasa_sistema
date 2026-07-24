@@ -165,8 +165,10 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
 - Pool pg: max 10 (PG_POOL_MAX), idle 30s, connect timeout 10s — el pooler de
   Supabase multiplexa por transacción.
 - Listados de volumen con paginación servidor: facturas (q + fechas + pagina/
-  por_pagina, respuesta {facturas, total}). Replicar el patrón en compras/
-  recibos cuando crezcan.
+  por_pagina, respuesta {facturas, total}) y productos (?pagina= activa el modo
+  {productos, total}; sin ?pagina= responde el array plano para los selectores
+  existentes; GET /productos/:id/existencias = detalle por bodega). Replicar el
+  patrón en compras/recibos cuando crezcan.
 
 ## Deploy (Vercel — preparado, AÚN NO PUBLICADO)
 

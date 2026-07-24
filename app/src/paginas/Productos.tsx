@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { api, ErrorApi } from '../api';
 import type { Producto } from '../tipos';
 import { montoSiempre } from '../formato';
@@ -13,24 +13,73 @@ const FORM_VACIO = {
   activo: true,
 };
 
+const POR_PAGINA = 50;
+
+interface ExistenciaBodega {
+  bodega: string;
+  bodega_nombre: string;
+  sucursal: string;
+  cantidad: string | number;
+}
+
 export default function Productos() {
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pagina, setPagina] = useState(1);
   const [busqueda, setBusqueda] = useState('');
   const [form, setForm] = useState<typeof FORM_VACIO | null>(null);
   const [aviso, setAviso] = useState('');
   const [tc, setTc] = useState<{ fecha: string; tasa: string | number } | null>(null);
+  const [abierto, setAbierto] = useState<number | null>(null);
+  const [bodegasDe, setBodegasDe] = useState<Record<number, ExistenciaBodega[]>>({});
 
-  async function cargar() {
+  // Búsqueda y paginación EN EL SERVIDOR: el catálogo real trae miles de filas
+  async function cargar(p = pagina, q = busqueda) {
     try {
-      setProductos(await api.get<Producto[]>('/productos'));
+      const consulta = new URLSearchParams({ pagina: String(p), por_pagina: String(POR_PAGINA) });
+      if (q.trim()) consulta.set('q', q.trim());
+      const r = await api.get<{ productos: Producto[]; total: number }>(`/productos?${consulta}`);
+      setProductos(r.productos);
+      setTotal(r.total);
+      setAbierto(null);
     } catch (e) {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'Error cargando productos'}`);
     }
   }
   useEffect(() => {
-    void cargar();
     api.get<{ fecha: string; tasa: string | number } | null>('/config/tipo-cambio').then(setTc).catch(() => undefined);
   }, []);
+  // La búsqueda espera 300ms de silencio antes de ir al servidor
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPagina(1);
+      void cargar(1, busqueda);
+    }, busqueda === '' ? 0 : 300);
+    return () => clearTimeout(t);
+  }, [busqueda]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+  function irA(p: number) {
+    const destino = Math.min(Math.max(1, p), paginas);
+    setPagina(destino);
+    void cargar(destino);
+  }
+
+  async function verBodegas(p: Producto) {
+    if (abierto === p.id) {
+      setAbierto(null);
+      return;
+    }
+    setAbierto(p.id);
+    if (!bodegasDe[p.id]) {
+      try {
+        const filas = await api.get<ExistenciaBodega[]>(`/productos/${p.id}/existencias`);
+        setBodegasDe((prev) => ({ ...prev, [p.id]: filas }));
+      } catch {
+        setAviso('❌ No se pudieron cargar las bodegas del producto');
+      }
+    }
+  }
 
   const tasa = Number(tc?.tasa ?? 0);
   const enDolares = (monto: unknown): string =>
@@ -47,17 +96,6 @@ export default function Productos() {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo actualizar el tipo de cambio'}`);
     }
   }
-
-  const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return productos;
-    return productos.filter(
-      (p) =>
-        p.nombre.toLowerCase().includes(q) ||
-        p.codigo.toLowerCase().includes(q) ||
-        (p.categoria ?? '').toLowerCase().includes(q)
-    );
-  }, [productos, busqueda]);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -196,55 +234,98 @@ export default function Productos() {
             </tr>
           </thead>
           <tbody>
-            {filtrados.length === 0 && (
+            {productos.length === 0 && (
               <tr>
                 <td colSpan={10} className="py-14 text-center text-slate-400">
                   {busqueda ? 'Sin resultados' : 'Sin productos — creá el primero'}
                 </td>
               </tr>
             )}
-            {filtrados.map((p) => (
-              <tr key={p.id}>
-                <td className="cifra font-medium">{p.codigo}</td>
-                <td className="font-medium">{p.nombre}</td>
-                <td className="text-slate-500">{p.categoria ?? '—'}</td>
-                <td className="text-slate-500">{p.unidad}</td>
-                <td className={`text-right cifra ${Number(p.existencia ?? 0) < 0 ? 'text-rojo font-semibold' : ''}`}>
-                  {Number(p.existencia ?? 0)}
-                </td>
-                <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>
-                <td className="text-right cifra text-slate-500">{enDolares(p.costo_promedio)}</td>
-                <td className="text-right cifra font-medium">{montoSiempre(p.precio_venta)}</td>
-                <td>
-                  {p.activo ? <span className="insignia-verde">activo</span> : <span className="insignia-gris">inactivo</span>}
-                </td>
-                <td className="text-right">
-                  <button
-                    onClick={() =>
-                      setForm({
-                        id: p.id,
-                        codigo: p.codigo,
-                        nombre: p.nombre,
-                        unidad: p.unidad,
-                        categoria: p.categoria ?? '',
-                        precio_venta: String(p.precio_venta),
-                        activo: p.activo,
-                      })
-                    }
-                    className="text-sm font-semibold text-verde hover:text-verde-oscuro"
-                  >
-                    Editar
-                  </button>
-                </td>
-              </tr>
+            {productos.map((p) => (
+              <Fragment key={p.id}>
+                <tr className={abierto === p.id ? 'bg-verde/5' : ''}>
+                  <td className="cifra font-medium">{p.codigo}</td>
+                  <td className="font-medium">{p.nombre}</td>
+                  <td className="text-slate-500">{p.categoria ?? '—'}</td>
+                  <td className="text-slate-500">{p.unidad}</td>
+                  <td className={`text-right cifra ${Number(p.existencia ?? 0) < 0 ? 'text-rojo font-semibold' : ''}`}>
+                    <button onClick={() => void verBodegas(p)} title="Ver existencias por bodega"
+                      className="hover:text-verde font-medium">
+                      {Number(p.existencia ?? 0)} {abierto === p.id ? '▾' : '▸'}
+                    </button>
+                  </td>
+                  <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>
+                  <td className="text-right cifra text-slate-500">{enDolares(p.costo_promedio)}</td>
+                  <td className="text-right cifra font-medium">{montoSiempre(p.precio_venta)}</td>
+                  <td>
+                    {p.activo ? <span className="insignia-verde">activo</span> : <span className="insignia-gris">inactivo</span>}
+                  </td>
+                  <td className="text-right space-x-3 whitespace-nowrap">
+                    <button onClick={() => void verBodegas(p)}
+                      className="text-sm text-slate-500 hover:text-tinta">Bodegas</button>
+                    <button
+                      onClick={() =>
+                        setForm({
+                          id: p.id,
+                          codigo: p.codigo,
+                          nombre: p.nombre,
+                          unidad: p.unidad,
+                          categoria: p.categoria ?? '',
+                          precio_venta: String(p.precio_venta),
+                          activo: p.activo,
+                        })
+                      }
+                      className="text-sm font-semibold text-verde hover:text-verde-oscuro"
+                    >
+                      Editar
+                    </button>
+                  </td>
+                </tr>
+                {abierto === p.id && (
+                  <tr className="bg-verde/5">
+                    <td colSpan={10} className="px-6 pb-4 pt-0">
+                      {!bodegasDe[p.id] ? (
+                        <span className="text-sm text-slate-400">Cargando bodegas…</span>
+                      ) : bodegasDe[p.id]!.length === 0 ? (
+                        <span className="text-sm text-slate-400">Sin existencia en ninguna bodega</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {bodegasDe[p.id]!.map((b) => (
+                            <span key={b.bodega}
+                              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm bg-white ${
+                                Number(b.cantidad) < 0 ? 'border-rojo/40 text-rojo' : 'border-borde'
+                              }`}>
+                              <span className="cifra text-slate-400">{b.bodega}</span>
+                              <span>{b.bodega_nombre}</span>
+                              <span className="cifra font-semibold">{Number(b.cantidad)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-xs text-slate-400">
-        Lista de precios sin inventario: las existencias y el costo de venta llegan en su propia fase.
-        Los cambios de precio quedan en bitácora.
-      </p>
+      <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
+        <p className="text-xs text-slate-400">
+          Clic en la existencia (o en Bodegas) para ver el detalle por bodega. Los cambios de precio quedan en bitácora.
+        </p>
+        {total > POR_PAGINA && (
+          <div className="flex items-center gap-2 text-sm">
+            <button onClick={() => irA(pagina - 1)} disabled={pagina <= 1}
+              className="boton-suave disabled:opacity-40">‹ Anterior</button>
+            <span className="text-slate-500">
+              pág. <span className="cifra">{pagina}</span> de <span className="cifra">{paginas}</span> · <span className="cifra">{total}</span> productos
+            </span>
+            <button onClick={() => irA(pagina + 1)} disabled={pagina >= paginas}
+              className="boton-suave disabled:opacity-40">Siguiente ›</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
