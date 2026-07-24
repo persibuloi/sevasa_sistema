@@ -83,13 +83,29 @@ function BotonArchivo({ alLeer }: { alLeer: (texto: string) => void }) {
   );
 }
 
+// Las hojas sobreviven a un refresco del navegador (se limpian al cargar la apertura)
+const RECUERDO = 'sevasa-apertura';
+function recordar(clave: string): string {
+  try { return localStorage.getItem(`${RECUERDO}:${clave}`) ?? ''; } catch { return ''; }
+}
+
 export default function SaldosIniciales() {
   const [estado, setEstado] = useState<Estado | null>(null);
-  const [fecha, setFecha] = useState('');
-  const [txtBalanza, setTxtBalanza] = useState('');
-  const [txtClientes, setTxtClientes] = useState('');
-  const [txtProveedores, setTxtProveedores] = useState('');
-  const [txtInventario, setTxtInventario] = useState('');
+  const [fecha, setFecha] = useState(() => recordar('fecha'));
+  const [txtBalanza, setTxtBalanza] = useState(() => recordar('balanza'));
+  const [txtClientes, setTxtClientes] = useState(() => recordar('clientes'));
+  const [txtProveedores, setTxtProveedores] = useState(() => recordar('proveedores'));
+  const [txtInventario, setTxtInventario] = useState(() => recordar('inventario'));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${RECUERDO}:fecha`, fecha);
+      localStorage.setItem(`${RECUERDO}:balanza`, txtBalanza);
+      localStorage.setItem(`${RECUERDO}:clientes`, txtClientes);
+      localStorage.setItem(`${RECUERDO}:proveedores`, txtProveedores);
+      localStorage.setItem(`${RECUERDO}:inventario`, txtInventario);
+    } catch { /* almacenamiento lleno o bloqueado: solo se pierde el respaldo */ }
+  }, [fecha, txtBalanza, txtClientes, txtProveedores, txtInventario]);
   const [crearTerceros, setCrearTerceros] = useState(true);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [aviso, setAviso] = useState('');
@@ -338,7 +354,7 @@ export default function SaldosIniciales() {
           }
           return -1;
         };
-        const iCodigo = primera('codigo_producto', 'codigo', 'codigo_detalle');
+        const iCodigo = primera('codigo_producto', 'codigo_producto2', 'codigo', 'codigo_detalle');
         const iNombre = idx('nombre');
         const iBodega = idx('codigo_bodega');
         const iCantidad = idx('existencia');
@@ -495,6 +511,11 @@ export default function SaldosIniciales() {
       const r = await api.post<{ asiento_id: number }>('/apertura/cargar', paquete);
       setAviso(`✅ Apertura cargada — asiento #${r.asiento_id}`);
       setResultado(null);
+      try {
+        for (const k of ['fecha', 'balanza', 'clientes', 'proveedores', 'inventario']) {
+          localStorage.removeItem(`${RECUERDO}:${k}`);
+        }
+      } catch { /* sin respaldo que limpiar */ }
       await cargarEstado();
     } catch (e) {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'Error al cargar'}`);
