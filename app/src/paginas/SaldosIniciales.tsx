@@ -329,13 +329,22 @@ export default function SaldosIniciales() {
       }>;
 
       if (reporteExi.formato === 'largo') {
-        // Una fila por producto-bodega: CODIGO · NOMBRE · CODIGO_BODEGA · EXISTENCIA · COSTO_DOLAR (o COSTO en C$)
-        const iCodigo = idx('codigo');
+        // Una fila por producto-bodega: CODIGO_PRODUCTO/CODIGO · NOMBRE · CODIGO_BODEGA ·
+        // EXISTENCIA · COSTO (C$, preferido) o COSTO_DOLAR · PRECIO_DOLAR (opcional)
+        const primera = (...nombres: string[]) => {
+          for (const n of nombres) {
+            const i = idx(n);
+            if (i !== -1) return i;
+          }
+          return -1;
+        };
+        const iCodigo = primera('codigo_producto', 'codigo', 'codigo_detalle');
         const iNombre = idx('nombre');
         const iBodega = idx('codigo_bodega');
         const iCantidad = idx('existencia');
         const iCostoCS = idx('costo');
         const iCostoUS = idx('costo_dolar');
+        const iPrecioUS = idx('precio_dolar');
         const enDolares = iCostoCS === -1;
         if (enDolares && !(tc > 0)) {
           setAviso('❌ Los costos vienen en US$ (COSTO_DOLAR): poné el tipo de cambio para convertirlos a córdobas');
@@ -343,7 +352,7 @@ export default function SaldosIniciales() {
         }
         const mapa = new Map(columnas);
         const porProducto = new Map<string, {
-          nombre: string; valor: number; cantidadTotal: number; porBodega: Map<string, number>;
+          nombre: string; valor: number; cantidadTotal: number; precio?: number; porBodega: Map<string, number>;
         }>();
         for (const r of reporteExi.filas) {
           const codigo = String(r[iCodigo] ?? '').trim();
@@ -351,21 +360,26 @@ export default function SaldosIniciales() {
           const bodega = mapa.get(bodegaVieja);
           if (!codigo || !bodega) continue; // bodegas sin mapear se ignoran
           const cantidad = limpiarNumero(String(r[iCantidad] ?? '0'));
-          if (!(cantidad > 0)) continue;
+          if (!(cantidad >= 0.005)) continue; // fuera los 1E-06 del sistema viejo
           const costoFila = limpiarNumero(String(r[enDolares ? iCostoUS : iCostoCS] ?? '0'));
           const costoCS = enDolares ? costoFila * tc : costoFila;
+          const precioUS = iPrecioUS >= 0 ? limpiarNumero(String(r[iPrecioUS] ?? '0')) : 0;
           const p = porProducto.get(codigo) ?? {
             nombre: String(r[iNombre] ?? '').trim(), valor: 0, cantidadTotal: 0, porBodega: new Map<string, number>(),
           };
           p.valor += cantidad * costoCS;
           p.cantidadTotal += cantidad;
           p.porBodega.set(bodega, (p.porBodega.get(bodega) ?? 0) + cantidad);
+          if (p.precio === undefined && tc > 0 && precioUS > 0) {
+            p.precio = Math.round(precioUS * tc * 100) / 100;
+          }
           porProducto.set(codigo, p);
         }
         filasEnvio = [...porProducto].map(([codigo, p]) => ({
           codigo,
           nombre: p.nombre,
           costo: p.cantidadTotal > 0 ? Math.round((p.valor / p.cantidadTotal) * 10000) / 10000 : 0,
+          precio: p.precio,
           existencias: [...p.porBodega].map(([bodega, cantidad]) => ({ bodega, cantidad })),
         }));
       } else {
@@ -668,7 +682,9 @@ export default function SaldosIniciales() {
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label className="etiqueta">
-                    {reporteExi.formato === 'largo' ? 'Tipo de cambio (OBLIGATORIO: costos en US$)' : 'Tipo de cambio (para precios en US$, opcional)'}
+                    {reporteExi.formato === 'largo' && !reporteExi.encabezado.some((c) => c.toLowerCase() === 'costo')
+                      ? 'Tipo de cambio (OBLIGATORIO: costos en US$)'
+                      : 'Tipo de cambio (para el precio de venta en US$, opcional)'}
                   </label>
                   <input value={tipoCambio} onChange={(e) => setTipoCambio(e.target.value)} placeholder="36.80" className="entrada cifra max-w-40" />
                 </div>
