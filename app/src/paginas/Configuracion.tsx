@@ -161,9 +161,19 @@ function TabSucursales() {
                 <td className="text-slate-500">{s.direccion ?? '—'}</td>
                 <td className="cifra text-slate-500">{s.cuenta_caja ?? 'general'}</td>
                 <td><Estado activa={s.activa} /></td>
-                <td className="text-right">
+                <td className="text-right space-x-3 whitespace-nowrap">
                   <button onClick={() => setForm({ editando: s.codigo, codigo: s.codigo, nombre: s.nombre, direccion: s.direccion ?? '', telefono: s.telefono ?? '', cuenta_caja: s.cuenta_caja ?? '', activa: s.activa })}
                     className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
+                  <button onClick={() => void (async () => {
+                    if (!confirm(`¿Borrar la sucursal ${s.codigo}? Solo se puede si nada la usa (bodegas, series, usuarios…).`)) return;
+                    try {
+                      await api.borrar(`/configuracion/sucursales/${s.codigo}`);
+                      setAviso(`✅ Sucursal ${s.codigo} borrada`);
+                      await cargar();
+                    } catch (err) {
+                      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'No se pudo borrar'}`);
+                    }
+                  })()} className="text-sm text-rojo/80 hover:text-rojo">Borrar</button>
                 </td>
               </tr>
             ))}
@@ -249,9 +259,19 @@ function TabBodegas() {
                 <td className="font-medium">{b.nombre}</td>
                 <td className="text-slate-500">{b.sucursal_nombre ?? b.sucursal}</td>
                 <td><Estado activa={b.activa} /></td>
-                <td className="text-right">
+                <td className="text-right space-x-3 whitespace-nowrap">
                   <button onClick={() => setForm({ editando: b.codigo, codigo: b.codigo, nombre: b.nombre, sucursal: b.sucursal, activa: b.activa })}
                     className="text-sm font-semibold text-verde hover:text-verde-oscuro">Editar</button>
+                  <button onClick={() => void (async () => {
+                    if (!confirm(`¿Borrar la bodega ${b.codigo}? Solo se puede si no tiene historia (kardex, traslados, usuarios…).`)) return;
+                    try {
+                      await api.borrar(`/configuracion/bodegas/${b.codigo}`);
+                      setAviso(`✅ Bodega ${b.codigo} borrada`);
+                      await cargar();
+                    } catch (err) {
+                      setAviso(`❌ ${err instanceof ErrorApi ? err.message : 'No se pudo borrar'}`);
+                    }
+                  })()} className="text-sm text-rojo/80 hover:text-rojo">Borrar</button>
                 </td>
               </tr>
             ))}

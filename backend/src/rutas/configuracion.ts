@@ -54,6 +54,19 @@ rutasConfiguracion.put('/sucursales/:codigo', requierePermiso('admin', 'editar')
   res.json(r.rows[0]);
 }));
 
+// Borrar sucursal: SOLO si nada la referencia (bodegas, series, vendedores,
+// usuarios…) — la FK lo garantiza y el middleware traduce el error. Con
+// historia, el camino es desactivarla.
+rutasConfiguracion.delete('/sucursales/:codigo', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
+  const r = await pool.query('DELETE FROM sucursales WHERE codigo = $1 RETURNING *', [req.params.codigo]);
+  if (r.rowCount === 0) {
+    res.status(404).json({ error: 'Sucursal no existe' });
+    return;
+  }
+  await registrarBitacora(pool, req.usuario!.id, 'borrar_sucursal', 'sucursales', req.params.codigo, r.rows[0]);
+  res.json({ ok: true });
+}));
+
 /* ---------------------------------------------------------------- bodegas */
 
 rutasConfiguracion.get('/bodegas', envolver(async (_req, res) => {
@@ -99,6 +112,18 @@ rutasConfiguracion.put('/bodegas/:codigo', requierePermiso('admin', 'editar'), e
     despues: r.rows[0],
   });
   res.json(r.rows[0]);
+}));
+
+// Borrar bodega: SOLO sin historia (kardex, existencias, traslados, compras,
+// usuarios amarrados…) — si algo la referencia, la FK bloquea con mensaje claro.
+rutasConfiguracion.delete('/bodegas/:codigo', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
+  const r = await pool.query('DELETE FROM bodegas WHERE codigo = $1 RETURNING *', [req.params.codigo]);
+  if (r.rowCount === 0) {
+    res.status(404).json({ error: 'Bodega no existe' });
+    return;
+  }
+  await registrarBitacora(pool, req.usuario!.id, 'borrar_bodega', 'bodegas', req.params.codigo, r.rows[0]);
+  res.json({ ok: true });
 }));
 
 /* -------------------------------------------------------------- vendedores */

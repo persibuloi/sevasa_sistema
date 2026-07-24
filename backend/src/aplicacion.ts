@@ -120,7 +120,14 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
   if (e?.code === '23503') {
-    res.status(400).json({ error: 'Referencia a un registro que no existe' });
+    // La misma violación de FK tiene dos caras: insertar apuntando a algo que
+    // no existe, o borrar algo que todavía está referenciado.
+    const borrando = /update or delete/i.test(String(e?.message ?? ''));
+    res.status(borrando ? 409 : 400).json({
+      error: borrando
+        ? 'No se puede borrar: otros registros lo usan (historia, usuarios o configuración) — desactivalo en su lugar'
+        : 'Referencia a un registro que no existe',
+    });
     return;
   }
   console.error('âŒ', err);
