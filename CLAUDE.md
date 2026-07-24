@@ -141,7 +141,7 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
 - Bootstrap del primer admin: atómico con pg_advisory_xact_lock.
 - HTTP: CORS_ORIGEN OBLIGATORIO en producción (el server no arranca sin él);
   rate limit por IP (RATE_LIMIT/min, default 300); cabeceras nosniff/DENY/
-  no-referrer; json limit 1mb; timeout 10s validando tokens; PG_POOL_MAX
+  no-referrer; json limit 8mb (la apertura trae miles de líneas); timeout 10s validando tokens; PG_POOL_MAX
   validado (1-50). Bundle dividido (vendor chunk).
 - Suite contable automatizada: `npm test` (Vitest + supertest) — corre contra
   un ESQUEMA TEMPORAL en el mismo Supabase (pruebas_<ts>): aplica las 15

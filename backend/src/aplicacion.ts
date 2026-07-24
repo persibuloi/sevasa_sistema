@@ -35,7 +35,8 @@ if (process.env.NODE_ENV === 'production' && (!origenes || origenes.length === 0
   throw new Error('âŒ En producciÃ³n CORS_ORIGEN es obligatorio (orÃ­genes separados por coma)');
 }
 app.use(cors(origenes && origenes.length > 0 ? { origin: origenes } : {}));
-app.use(express.json({ limit: '1mb' }));
+// 8mb: la apertura real trae miles de líneas de inventario en un solo POST
+app.use(express.json({ limit: '8mb' }));
 app.disable('x-powered-by');
 
 // Cabeceras defensivas (API pura, sin HTML)

@@ -5,7 +5,6 @@ import { envolver, aCentavos } from '../util';
 import { requierePermiso } from '../auth';
 import { registrarBitacora } from '../bitacora';
 import { leerConfig } from '../config';
-import { entradaInventario, revertirEntrada } from '../inventario';
 
 /** Apertura de saldos iniciales (importador F1).
  *
@@ -193,7 +192,17 @@ async function validarApertura(c: CuerpoApertura): Promise<Validacion> {
   // --- inventario ---
   let invCent = 0;
   const combos = new Set<string>();
-  for (const f of Array.isArray(c.inventario) ? c.inventario : []) {
+  // Catálogos en UN viaje (con miles de líneas, consultar fila por fila tarda minutos)
+  const filasInv = Array.isArray(c.inventario) ? c.inventario : [];
+  const codigosProducto = [...new Set(filasInv.map((f) => String(f.producto ?? '').trim()).filter(Boolean))];
+  const productosBd = codigosProducto.length
+    ? await pool.query('SELECT id, codigo, activo FROM productos WHERE codigo = ANY($1)', [codigosProducto])
+    : { rows: [] as Array<{ id: number; codigo: string; activo: boolean }> };
+  const productoPorCodigo = new Map(productosBd.rows.map((r) => [r.codigo as string, r]));
+  const bodegasActivas = new Set(
+    (await pool.query('SELECT codigo FROM bodegas WHERE activa')).rows.map((r) => r.codigo as string)
+  );
+  for (const f of filasInv) {
     const codigo = String(f.producto ?? '').trim();
     const bodega = String(f.bodega ?? '').trim();
     const cantidad = num(f.cantidad);
@@ -203,13 +212,12 @@ async function validarApertura(c: CuerpoApertura): Promise<Validacion> {
     if (!Number.isFinite(costo) || costo < 0) { errores.push(`Inventario ${codigo}: costo inválido`); continue; }
     if (combos.has(`${codigo}|${bodega}`)) { errores.push(`Inventario ${codigo} repetido en la bodega ${bodega}`); continue; }
     combos.add(`${codigo}|${bodega}`);
-    const p = await pool.query('SELECT id, activo FROM productos WHERE codigo = $1', [codigo]);
-    if (p.rowCount === 0) { errores.push(`El producto ${codigo} no existe — cargalo antes en Configuración → Productos`); continue; }
-    if (!p.rows[0].activo) { errores.push(`El producto ${codigo} está inactivo`); continue; }
-    const b = await pool.query('SELECT 1 FROM bodegas WHERE codigo = $1 AND activa', [bodega]);
-    if (b.rowCount === 0) { errores.push(`La bodega ${bodega} no existe o está inactiva`); continue; }
+    const p = productoPorCodigo.get(codigo);
+    if (!p) { errores.push(`El producto ${codigo} no existe — cargalo antes en Configuración → Productos`); continue; }
+    if (!p.activo) { errores.push(`El producto ${codigo} está inactivo`); continue; }
+    if (!bodegasActivas.has(bodega)) { errores.push(`La bodega ${bodega} no existe o está inactiva`); continue; }
     invCent += Math.round(cantidad * aCentavos(costo));
-    inventario.push({ producto: codigo, bodega, cantidad, costo_unitario: costo, producto_id: Number(p.rows[0].id) });
+    inventario.push({ producto: codigo, bodega, cantidad, costo_unitario: costo, producto_id: Number(p.id) });
   }
   if (inventario.length > 0 && invCent !== saldoInvCent) {
     errores.push(
@@ -321,12 +329,12 @@ rutasApertura.post('/cargar', requierePermiso('contabilidad', 'cerrar'), envolve
       [fecha, fecha.slice(0, 7), `Saldos iniciales al ${fecha} (sistema anterior)`, usuario]
     );
     const asientoId = Number(asiento.rows[0].id);
-    for (const f of v.balanza) {
-      await bd.query(
-        `INSERT INTO movimientos (asiento_id, cuenta, debito, credito) VALUES ($1, $2, $3, $4)`,
-        [asientoId, f.cuenta, f.debito, f.credito]
-      );
-    }
+    await bd.query(
+      `INSERT INTO movimientos (asiento_id, cuenta, debito, credito)
+       SELECT $1, t.cuenta, t.debito, t.credito
+       FROM unnest($2::text[], $3::numeric[], $4::numeric[]) AS t(cuenta, debito, credito)`,
+      [asientoId, v.balanza.map((f) => f.cuenta), v.balanza.map((f) => f.debito), v.balanza.map((f) => f.credito)]
+    );
 
     // 3) cartera: factura de apertura por cliente (auxiliar, SIN asiento)
     for (const cli of v.clientes) {
@@ -369,13 +377,49 @@ rutasApertura.post('/cargar', requierePermiso('contabilidad', 'cerrar'), envolve
       );
     }
 
-    // 5) inventario: entrada de kardex al costo cargado (fija el promedio)
-    for (const inv of v.inventario) {
-      await entradaInventario(
-        bd,
-        { fecha, productoId: inv.producto_id, bodega: inv.bodega, cantidad: inv.cantidad,
-          usuarioId: usuario, origenTipo: 'apertura', origenId: asientoId },
-        inv.costo_unitario
+    // 5) inventario EN LOTE: con miles de líneas, el motor fila-por-fila tarda
+    // media hora contra el pooler; estas 4 operaciones hacen lo mismo que
+    // entradaInventario (lock, promedio ponderado, existencias, kardex) de un golpe.
+    if (v.inventario.length > 0) {
+      const ids = v.inventario.map((i) => i.producto_id);
+      const bodegasArr = v.inventario.map((i) => i.bodega);
+      const cantidades = v.inventario.map((i) => i.cantidad);
+      const costos = v.inventario.map((i) => i.costo_unitario);
+
+      // lock de todos los productos implicados (orden fijo = sin deadlocks)
+      await bd.query('SELECT id FROM productos WHERE id = ANY($1) ORDER BY id FOR UPDATE', [
+        [...new Set(ids)].sort((a, b) => a - b),
+      ]);
+      // costo promedio ponderado con la existencia previa (negativa no pondera)
+      await bd.query(
+        `WITH entrada AS (
+           SELECT t.id, SUM(t.cantidad) AS cantidad, SUM(t.cantidad * t.costo) AS valor
+           FROM unnest($1::bigint[], $2::numeric[], $3::numeric[]) AS t(id, cantidad, costo)
+           GROUP BY t.id
+         ), base AS (
+           SELECT producto_id, GREATEST(COALESCE(SUM(cantidad), 0), 0) AS existencia
+           FROM existencias GROUP BY producto_id
+         )
+         UPDATE productos p
+         SET costo_promedio = ROUND(
+           (COALESCE(b.existencia, 0) * p.costo_promedio + e.valor) / (COALESCE(b.existencia, 0) + e.cantidad), 4)
+         FROM entrada e LEFT JOIN base b ON b.producto_id = e.id
+         WHERE p.id = e.id AND (COALESCE(b.existencia, 0) + e.cantidad) > 0`,
+        [ids, cantidades, costos]
+      );
+      await bd.query(
+        `INSERT INTO existencias (producto_id, bodega, cantidad)
+         SELECT t.id, t.bodega, t.cantidad
+         FROM unnest($1::bigint[], $2::text[], $3::numeric[]) AS t(id, bodega, cantidad)
+         ON CONFLICT (producto_id, bodega) DO UPDATE SET cantidad = existencias.cantidad + EXCLUDED.cantidad`,
+        [ids, bodegasArr, cantidades]
+      );
+      await bd.query(
+        `INSERT INTO movimientos_inventario
+           (fecha, producto_id, bodega, tipo, origen_tipo, origen_id, cantidad, costo_unitario, creado_por)
+         SELECT $1, t.id, t.bodega, 'ajuste_entrada', 'apertura', $2, t.cantidad, t.costo, $3
+         FROM unnest($4::bigint[], $5::text[], $6::numeric[], $7::numeric[]) AS t(id, bodega, cantidad, costo)`,
+        [fecha, asientoId, usuario, ids, bodegasArr, cantidades, costos]
       );
     }
 
@@ -429,24 +473,24 @@ rutasApertura.post('/anular', requierePermiso('contabilidad', 'cerrar'), envolve
       return { error: 409, mensaje: 'Hay pagos aplicados a compras de apertura — anulalos primero' };
     }
 
-    // El inventario de la apertura debe seguir en las bodegas para poder regresarlo
-    const kardexApertura = await bd.query(
-      `SELECT producto_id, bodega, cantidad, costo_unitario FROM movimientos_inventario
-       WHERE origen_tipo = 'apertura' AND origen_id = $1 AND tipo = 'ajuste_entrada'`,
+    // El inventario de la apertura debe seguir en las bodegas para poder
+    // regresarlo — chequeo en UN viaje (con miles de líneas, fila por fila tarda)
+    const insuficiente = await bd.query(
+      `SELECT p.codigo, k.bodega, k.cantidad, COALESCE(e.cantidad, 0) AS disponible
+       FROM movimientos_inventario k
+       JOIN productos p ON p.id = k.producto_id
+       LEFT JOIN existencias e ON e.producto_id = k.producto_id AND e.bodega = k.bodega
+       WHERE k.origen_tipo = 'apertura' AND k.origen_id = $1 AND k.tipo = 'ajuste_entrada'
+         AND COALESCE(e.cantidad, 0) < k.cantidad
+       LIMIT 1`,
       [asientoId]
     );
-    for (const k of kardexApertura.rows) {
-      const e = await bd.query(
-        'SELECT COALESCE(cantidad, 0) AS c FROM existencias WHERE producto_id = $1 AND bodega = $2',
-        [k.producto_id, k.bodega]
-      );
-      if (Number(e.rows[0]?.c ?? 0) < Number(k.cantidad)) {
-        const p = await bd.query('SELECT codigo FROM productos WHERE id = $1', [k.producto_id]);
-        return {
-          error: 409,
-          mensaje: `No se puede anular: la bodega ${k.bodega} ya no tiene las ${k.cantidad} unidades de ${p.rows[0]?.codigo} de la apertura (¿se vendieron?)`,
-        };
-      }
+    if ((insuficiente.rowCount ?? 0) > 0) {
+      const k = insuficiente.rows[0];
+      return {
+        error: 409,
+        mensaje: `No se puede anular: la bodega ${k.bodega} ya no tiene las ${k.cantidad} unidades de ${k.codigo} de la apertura (¿se vendieron?)`,
+      };
     }
 
     // Contra-asiento espejo
@@ -475,14 +519,50 @@ rutasApertura.post('/anular', requierePermiso('contabilidad', 'cerrar'), envolve
        WHERE numero_documento LIKE 'INI-%' AND estado = 'registrada'`,
       [usuario]
     );
-    for (const k of kardexApertura.rows) {
-      await revertirEntrada(
-        bd,
-        { fecha: hoy, productoId: Number(k.producto_id), bodega: k.bodega, cantidad: Number(k.cantidad),
-          usuarioId: usuario, origenTipo: 'apertura', origenId: asientoId },
-        Number(k.costo_unitario)
-      );
-    }
+    // Reversa del inventario EN LOTE (espejo exacto de la carga masiva)
+    await bd.query(
+      `SELECT id FROM productos WHERE id IN (
+         SELECT DISTINCT producto_id FROM movimientos_inventario
+         WHERE origen_tipo = 'apertura' AND origen_id = $1 AND tipo = 'ajuste_entrada'
+       ) ORDER BY id FOR UPDATE`,
+      [asientoId]
+    );
+    await bd.query(
+      `WITH rev AS (
+         SELECT producto_id AS id, SUM(cantidad) AS cantidad, SUM(cantidad * costo_unitario) AS valor
+         FROM movimientos_inventario
+         WHERE origen_tipo = 'apertura' AND origen_id = $1 AND tipo = 'ajuste_entrada'
+         GROUP BY producto_id
+       ), base AS (
+         SELECT producto_id, COALESCE(SUM(cantidad), 0) AS existencia FROM existencias GROUP BY producto_id
+       )
+       UPDATE productos p
+       SET costo_promedio = ROUND(GREATEST(
+         (COALESCE(b.existencia, 0) * p.costo_promedio - r.valor) /
+         NULLIF(COALESCE(b.existencia, 0) - r.cantidad, 0), 0), 4)
+       FROM rev r LEFT JOIN base b ON b.producto_id = r.id
+       WHERE p.id = r.id AND (COALESCE(b.existencia, 0) - r.cantidad) > 0`,
+      [asientoId]
+    );
+    await bd.query(
+      `UPDATE existencias e SET cantidad = e.cantidad - k.cantidad
+       FROM (
+         SELECT producto_id, bodega, SUM(cantidad) AS cantidad
+         FROM movimientos_inventario
+         WHERE origen_tipo = 'apertura' AND origen_id = $1 AND tipo = 'ajuste_entrada'
+         GROUP BY producto_id, bodega
+       ) k
+       WHERE e.producto_id = k.producto_id AND e.bodega = k.bodega`,
+      [asientoId]
+    );
+    await bd.query(
+      `INSERT INTO movimientos_inventario
+         (fecha, producto_id, bodega, tipo, origen_tipo, origen_id, cantidad, costo_unitario, creado_por)
+       SELECT $2, producto_id, bodega, 'anulacion', 'apertura', $1, -cantidad, costo_unitario, $3
+       FROM movimientos_inventario
+       WHERE origen_tipo = 'apertura' AND origen_id = $1 AND tipo = 'ajuste_entrada'`,
+      [asientoId, hoy, usuario]
+    );
 
     await registrarBitacora(bd, usuario, 'anular_apertura', 'asientos', String(asientoId), {
       motivo,
