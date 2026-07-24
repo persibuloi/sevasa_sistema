@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
+import type { Cliente, Cuenta, Producto } from '../tipos';
 
 /** Apertura de saldos iniciales: se pegan las 4 hojas desde Excel (tab) o
  *  CSV, se valida contra el catálogo y las cuentas de enlace, y se carga
@@ -99,27 +100,121 @@ export default function SaldosIniciales() {
   const cargarEstado = () => api.get<Estado>('/apertura').then(setEstado).catch(() => undefined);
   useEffect(() => { void cargarEstado(); }, []);
 
+  // Las filas de la plantilla que quedaron sin monto se saltan (son el
+  // catálogo pre-llenado); un monto mal escrito SÍ llega y el backend lo canta.
   const paquete = useMemo(() => ({
     fecha,
     crear_terceros: crearTerceros,
-    balanza: filas(txtBalanza).map((c) => ({
-      cuenta: c[0] ?? '', debito: limpiarNumero(c[1] ?? '0') || 0, credito: limpiarNumero(c[2] ?? '0') || 0,
-    })),
-    clientes: filas(txtClientes).map((c) => ({
-      ruc: c.length >= 3 ? c[0] : undefined,
-      nombre: c.length >= 3 ? (c[1] ?? '') : (c[0] ?? ''),
-      saldo: limpiarNumero(c[c.length - 1] ?? '0'),
-    })),
-    proveedores: filas(txtProveedores).map((c) => ({
-      ruc: c.length >= 3 ? c[0] : undefined,
-      nombre: c.length >= 3 ? (c[1] ?? '') : (c[0] ?? ''),
-      saldo: limpiarNumero(c[c.length - 1] ?? '0'),
-    })),
-    inventario: filas(txtInventario).map((c) => ({
-      producto: c[0] ?? '', bodega: c[1] ?? '',
-      cantidad: limpiarNumero(c[2] ?? '0'), costo_unitario: limpiarNumero(c[3] ?? '0'),
-    })),
+    balanza: filas(txtBalanza).flatMap((c) => {
+      const d = (c[1] ?? '').trim();
+      const cr = (c[2] ?? '').trim();
+      if (d === '' && cr === '') return [];
+      return [{ cuenta: c[0] ?? '', debito: limpiarNumero(d), credito: limpiarNumero(cr) }];
+    }),
+    clientes: filas(txtClientes).flatMap((c) => {
+      const tiene3 = c.length >= 3;
+      const saldoStr = ((tiene3 ? c[2] : c[1]) ?? '').trim();
+      if (saldoStr === '') return [];
+      return [{ ruc: tiene3 ? c[0] : undefined, nombre: (tiene3 ? c[1] : c[0]) ?? '', saldo: limpiarNumero(saldoStr) }];
+    }),
+    proveedores: filas(txtProveedores).flatMap((c) => {
+      const tiene3 = c.length >= 3;
+      const saldoStr = ((tiene3 ? c[2] : c[1]) ?? '').trim();
+      if (saldoStr === '') return [];
+      return [{ ruc: tiene3 ? c[0] : undefined, nombre: (tiene3 ? c[1] : c[0]) ?? '', saldo: limpiarNumero(saldoStr) }];
+    }),
+    inventario: filas(txtInventario).flatMap((c) => {
+      const cantidadStr = (c[2] ?? '').trim();
+      const costoStr = (c[3] ?? '').trim();
+      if (cantidadStr === '' && costoStr === '') return [];
+      return [{ producto: c[0] ?? '', bodega: c[1] ?? '', cantidad: limpiarNumero(cantidadStr), costo_unitario: limpiarNumero(costoStr) }];
+    }),
   }), [fecha, crearTerceros, txtBalanza, txtClientes, txtProveedores, txtInventario]);
+
+  /** Plantilla Excel pre-llenada con el catálogo real: solo se ponen montos. */
+  async function descargarPlantilla() {
+    setAviso('');
+    setOcupado(true);
+    try {
+      const [XLSX, cuentas, clientes, proveedores, productos] = await Promise.all([
+        import('xlsx'),
+        api.get<Cuenta[]>('/cuentas'),
+        api.get<Cliente[]>('/clientes'),
+        api.get<Array<{ ruc: string | null; nombre: string; activo: boolean }>>('/proveedores'),
+        api.get<Producto[]>('/productos'),
+      ]);
+      const hoja = (datos: Array<Array<string | number>>, anchos: number[]) => {
+        const ws = XLSX.utils.aoa_to_sheet(datos);
+        ws['!cols'] = anchos.map((wch) => ({ wch }));
+        return ws;
+      };
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja([
+        ['PLANTILLA DE SALDOS INICIALES — SEVASA CONTABLE'],
+        [''],
+        ['Cada hoja ya trae el catálogo del sistema: SOLO llená los montos.'],
+        ['Las filas que dejés sin monto se ignoran solas.'],
+        [''],
+        ['1 · Balanza: el saldo de cada cuenta en débito O crédito. Débitos = créditos al centavo.'],
+        ['2 · Clientes: un saldo global por cliente. La suma debe ser IGUAL a la cuenta CxC de la balanza.'],
+        ['3 · Proveedores: igual, contra la cuenta CxP. Quedan pagables desde Bancos.'],
+        ['4 · Inventario: bodega, cantidad y costo unitario. Cantidad × costo debe sumar la cuenta Inventario.'],
+        [''],
+        ['Al terminar: Contabilidad → Saldos iniciales → "Subir plantilla llena" → Validar → Cargar apertura.'],
+      ], [105]), 'Instrucciones');
+      XLSX.utils.book_append_sheet(libro, hoja([
+        ['cuenta', 'debito', 'credito', 'nombre (referencia)'],
+        ...cuentas.filter((c) => c.es_detalle && c.activa).map((c) => [c.codigo, '', '', c.nombre]),
+      ], [16, 14, 14, 45]), 'Balanza');
+      XLSX.utils.book_append_sheet(libro, hoja([
+        ['ruc', 'nombre', 'saldo'],
+        ...clientes.filter((c) => c.activo).map((c) => [c.ruc ?? '', c.nombre, '']),
+      ], [16, 45, 14]), 'Clientes');
+      XLSX.utils.book_append_sheet(libro, hoja([
+        ['ruc', 'nombre', 'saldo'],
+        ...proveedores.filter((p) => p.activo).map((p) => [p.ruc ?? '', p.nombre, '']),
+      ], [16, 45, 14]), 'Proveedores');
+      XLSX.utils.book_append_sheet(libro, hoja([
+        ['codigo', 'bodega', 'cantidad', 'costo_unitario', 'nombre (referencia)'],
+        ...productos.filter((p) => p.activo).map((p) => [p.codigo, '', '', '', p.nombre]),
+      ], [16, 12, 12, 15, 45]), 'Inventario');
+      XLSX.writeFile(libro, 'Plantilla-Saldos-Iniciales-SEVASA.xlsx');
+    } catch (e) {
+      setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo generar la plantilla'}`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  /** Sube la plantilla llena: reparte sus hojas en los 4 bloques de un golpe. */
+  async function subirPlantilla(archivo: File) {
+    setAviso('');
+    try {
+      const XLSX = await import('xlsx');
+      const libro = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
+      const texto = (busqueda: string): string | null => {
+        const nombre = libro.SheetNames.find((s) => s.toLowerCase().includes(busqueda));
+        const ws = nombre ? libro.Sheets[nombre] : undefined;
+        return ws ? XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false }) : null;
+      };
+      const b = texto('balanza');
+      const c = texto('client');
+      const p = texto('proveedor');
+      const i = texto('inventario');
+      if (b === null && c === null && p === null && i === null) {
+        setAviso('❌ El archivo no trae hojas Balanza/Clientes/Proveedores/Inventario — ¿es la plantilla?');
+        return;
+      }
+      if (b !== null) setTxtBalanza(b);
+      if (c !== null) setTxtClientes(c);
+      if (p !== null) setTxtProveedores(p);
+      if (i !== null) setTxtInventario(i);
+      setResultado(null);
+      setAviso('✅ Plantilla cargada en los 4 bloques — revisá y validá');
+    } catch {
+      setAviso('❌ No se pudo leer el archivo');
+    }
+  }
 
   async function validar() {
     setAviso('');
@@ -214,9 +309,29 @@ export default function SaldosIniciales() {
       {/* ----- formulario de carga ----- */}
       {!estado?.cargada && (
         <div className="tarjeta p-6">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-3">
-            Carga de saldos iniciales — subí el Excel/CSV de cada hoja o pegá las columnas directo desde Excel
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+              Carga de saldos iniciales
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => void descargarPlantilla()} disabled={ocupado} className="boton-suave">
+                ⬇ Descargar plantilla Excel
+              </button>
+              <label className="boton-primario cursor-pointer">
+                ⬆ Subir plantilla llena
+                <input type="file" accept=".xlsx,.xls" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void subirPlantilla(f);
+                    e.target.value = '';
+                  }} />
+              </label>
+            </div>
           </div>
+          <p className="text-sm text-slate-500 -mt-2 mb-4">
+            La plantilla ya trae tu catálogo (cuentas, clientes, proveedores y productos): solo llenás los
+            montos y la subís. También podés subir cada hoja por separado o pegar las columnas desde Excel.
+          </p>
           <div className="grid md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="etiqueta">Fecha de corte</label>
