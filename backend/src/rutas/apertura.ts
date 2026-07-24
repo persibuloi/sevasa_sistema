@@ -506,8 +506,9 @@ rutasApertura.post('/anular', requierePermiso('contabilidad', 'cerrar'), envolve
  *  Solo admin + frase exacta; queda registrado en bitácora (que NO se toca). */
 rutasApertura.post('/limpiar', requierePermiso('admin', 'editar'), envolver(async (req, res) => {
   const { confirmacion, incluir_catalogo } = req.body ?? {};
-  if (confirmacion !== 'LIMPIAR PRUEBAS') {
-    res.status(400).json({ error: 'Escribí exactamente LIMPIAR PRUEBAS para confirmar' });
+  const frase = String(confirmacion ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+  if (frase !== 'LIMPIAR PRUEBAS') {
+    res.status(400).json({ error: 'Escribí LIMPIAR PRUEBAS para confirmar' });
     return;
   }
   const usuario = req.usuario!.id;

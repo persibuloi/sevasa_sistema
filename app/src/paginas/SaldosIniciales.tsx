@@ -148,6 +148,7 @@ export default function SaldosIniciales() {
 
   const n = (v: unknown) => Number(v ?? 0).toLocaleString('es-NI', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const d = estado?.datos_actuales;
+  const fraseOkBool = fraseLimpiar.trim().replace(/\s+/g, ' ').toUpperCase() === 'LIMPIAR PRUEBAS';
 
   return (
     <div className="max-w-5xl space-y-4">
@@ -285,10 +286,14 @@ export default function SaldosIniciales() {
             <input type="checkbox" checked={incluirCatalogo} onChange={(e) => setIncluirCatalogo(e.target.checked)} />
             Borrar también clientes, proveedores y productos de prueba
           </label>
-          <button onClick={() => void limpiar()} disabled={ocupado || fraseLimpiar !== 'LIMPIAR PRUEBAS'} className="boton-peligro">
+          <button onClick={() => void limpiar()} disabled={ocupado || !fraseOkBool} className="boton-peligro">
             Limpiar datos de prueba
           </button>
         </div>
+        {!fraseOkBool && fraseLimpiar !== '' && (
+          <p className="text-xs text-ambar mt-2">Escribí la frase LIMPIAR PRUEBAS para habilitar el botón.</p>
+        )}
+        {aviso && <p className="text-sm mt-3">{aviso}</p>}
       </div>
     </div>
   );
