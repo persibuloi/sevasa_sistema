@@ -345,6 +345,16 @@ export default function SaldosIniciales() {
         const iCostoCS = idx('costo');
         const iCostoUS = idx('costo_dolar');
         const iPrecioUS = idx('precio_dolar');
+        const faltantes = [
+          ...(iCodigo === -1 ? ['CODIGO_PRODUCTO'] : []),
+          ...(iBodega === -1 ? ['CODIGO_BODEGA'] : []),
+          ...(iCantidad === -1 ? ['EXISTENCIA'] : []),
+          ...(iCostoCS === -1 && iCostoUS === -1 ? ['COSTO o COSTO_DOLAR'] : []),
+        ];
+        if (faltantes.length > 0) {
+          setAviso(`❌ No encuentro estas columnas en el reporte: ${faltantes.join(', ')} — columnas leídas: ${reporteExi.encabezado.filter(Boolean).join(', ')}`);
+          return;
+        }
         const enDolares = iCostoCS === -1;
         if (enDolares && !(tc > 0)) {
           setAviso('❌ Los costos vienen en US$ (COSTO_DOLAR): poné el tipo de cambio para convertirlos a córdobas');
