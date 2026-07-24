@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ErrorApi } from '../api';
-import type { Cliente, Cuenta, Producto } from '../tipos';
+import type { Bodega, Cliente, Cuenta, Producto } from '../tipos';
 
 /** Apertura de saldos iniciales: se pegan las 4 hojas desde Excel (tab) o
  *  CSV, se valida contra el catálogo y las cuentas de enlace, y se carga
@@ -96,9 +96,16 @@ export default function SaldosIniciales() {
   const [ocupado, setOcupado] = useState(false);
   const [fraseLimpiar, setFraseLimpiar] = useState('');
   const [incluirCatalogo, setIncluirCatalogo] = useState(false);
+  const [bodegas, setBodegas] = useState<Bodega[]>([]);
+  const [reporteExi, setReporteExi] = useState<{ encabezado: string[]; filas: string[][]; candidatas: string[] } | null>(null);
+  const [mapeo, setMapeo] = useState<Record<string, string>>({});
+  const [tipoCambio, setTipoCambio] = useState('');
 
   const cargarEstado = () => api.get<Estado>('/apertura').then(setEstado).catch(() => undefined);
-  useEffect(() => { void cargarEstado(); }, []);
+  useEffect(() => {
+    void cargarEstado();
+    api.get<Bodega[]>('/configuracion/bodegas').then((b) => setBodegas(b.filter((x) => x.activa))).catch(() => undefined);
+  }, []);
 
   // Las filas de la plantilla que quedaron sin monto se saltan (son el
   // catálogo pre-llenado); un monto mal escrito SÍ llega y el backend lo canta.
@@ -226,6 +233,120 @@ export default function SaldosIniciales() {
       ].join('\n'));
     } catch (e) {
       setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo convertir la balanza'}`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  // Columnas del reporte de existencias que NO son bodegas
+  const NO_BODEGA = new Set([
+    'codigo_detalle', 'nombre', 'nombre2', 'existencia', 'exisinaverias',
+    'precio_dolar', 'garantia_meses', 'costo', 'costo_dolar', 'nivel2', 'nivel3', 'nivel4',
+  ]);
+
+  /** Lee el reporte de existencias del sistema viejo y prepara el mapeo. */
+  async function leerReporteExistencias(archivo: File) {
+    setAviso('');
+    try {
+      const XLSX = await import('xlsx');
+      const libro = XLSX.read(await archivo.arrayBuffer(), { type: 'array' });
+      const ws = libro.Sheets[libro.SheetNames[0] ?? ''];
+      const crudas: string[][] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) : [];
+      const iEnc = crudas.findIndex((r) => r.some((c) => String(c).trim().toUpperCase() === 'CODIGO_DETALLE'));
+      if (iEnc === -1) {
+        setAviso('❌ No parece el reporte de existencias: falta la columna CODIGO_DETALLE');
+        return;
+      }
+      const encabezado = crudas[iEnc]!.map((c) => String(c).trim());
+      const candidatas = encabezado.filter((c) => c !== '' && !NO_BODEGA.has(c.toLowerCase()));
+      setReporteExi({ encabezado, filas: crudas.slice(iEnc + 1), candidatas });
+      setMapeo({});
+      setAviso(`✅ Reporte leído: ${crudas.length - iEnc - 1} productos. Ahora mapeá cada columna a su bodega (las que dejés en blanco se ignoran).`);
+    } catch {
+      setAviso('❌ No se pudo leer el reporte de existencias');
+    }
+  }
+
+  /** Recalcula la cuenta 1-1-3 y el ajuste 3-99 cuando el kardex trae otro total. */
+  function ajustarBalanzaInventario(totalInventario: number): boolean {
+    const filasB = filas(txtBalanza).map((c) => ({
+      cuenta: c[0] ?? '',
+      deb: limpiarNumero((c[1] ?? '').trim() || '0') || 0,
+      cred: limpiarNumero((c[2] ?? '').trim() || '0') || 0,
+    }));
+    const inv = filasB.find((r) => r.cuenta === '1-1-3');
+    if (!inv) return false;
+    inv.deb = totalInventario;
+    inv.cred = 0;
+    const suma = filasB
+      .filter((r) => r.cuenta !== '3-99')
+      .reduce((t, r) => t + Math.round(r.deb * 100) - Math.round(r.cred * 100), 0);
+    let ajuste = filasB.find((r) => r.cuenta === '3-99');
+    if (!ajuste) {
+      ajuste = { cuenta: '3-99', deb: 0, cred: 0 };
+      filasB.push(ajuste);
+    }
+    ajuste.deb = suma < 0 ? -suma / 100 : 0;
+    ajuste.cred = suma > 0 ? suma / 100 : 0;
+    setTxtBalanza(filasB.map((r) => `${r.cuenta}\t${r.deb || ''}\t${r.cred || ''}`).join('\n'));
+    return true;
+  }
+
+  /** Convierte el reporte con el mapeo elegido: crea productos y llena la hoja 4. */
+  async function convertirExistencias() {
+    if (!reporteExi) return;
+    const columnas = Object.entries(mapeo).filter(([, b]) => b !== '');
+    if (columnas.length === 0) {
+      setAviso('❌ Mapeá al menos una columna a una bodega');
+      return;
+    }
+    setAviso('');
+    setOcupado(true);
+    try {
+      const idx = (nombre: string) => reporteExi.encabezado.findIndex((c) => c.toLowerCase() === nombre);
+      const iCodigo = idx('codigo_detalle');
+      const iNombre = idx('nombre');
+      const iCosto = idx('costo');
+      const iPrecio = idx('precio_dolar');
+      const iCategoria = idx('nivel2');
+      const tc = limpiarNumero(tipoCambio);
+      const filasEnvio = reporteExi.filas
+        .filter((r) => String(r[iCodigo] ?? '').trim() !== '')
+        .map((r) => {
+          const porBodega = new Map<string, number>();
+          for (const [col, bodega] of columnas) {
+            const iCol = reporteExi.encabezado.indexOf(col);
+            const cantidad = limpiarNumero(String(r[iCol] ?? '0'));
+            if (Number.isFinite(cantidad) && cantidad > 0) {
+              porBodega.set(bodega, (porBodega.get(bodega) ?? 0) + cantidad);
+            }
+          }
+          const precioDolar = iPrecio >= 0 ? limpiarNumero(String(r[iPrecio] ?? '0')) : 0;
+          return {
+            codigo: String(r[iCodigo] ?? '').trim(),
+            nombre: String(r[iNombre] ?? '').trim(),
+            categoria: iCategoria >= 0 ? String(r[iCategoria] ?? '').trim() : '',
+            costo: limpiarNumero(String(r[iCosto] ?? '0')),
+            precio: tc > 0 && precioDolar > 0 ? Math.round(precioDolar * tc * 100) / 100 : undefined,
+            existencias: [...porBodega].map(([bodega, cantidad]) => ({ bodega, cantidad })),
+          };
+        });
+      const r = await api.post<{
+        inventario: Array<{ producto: string; bodega: string; cantidad: number; costo_unitario: number }>;
+        total: number; productos_creados: number; lineas: number; avisos: string[];
+      }>('/apertura/convertir-existencias', { filas: filasEnvio, crear_productos: true });
+      setTxtInventario(r.inventario.map((i) => `${i.producto}\t${i.bodega}\t${i.cantidad}\t${Number(i.costo_unitario.toFixed(4))}`).join('\n'));
+      const ajustada = ajustarBalanzaInventario(r.total);
+      setResultado(null);
+      setReporteExi(null);
+      setAviso([
+        `✅ Existencias convertidas: ${r.lineas} líneas de kardex, ${r.productos_creados} productos creados, total C$ ${r.total.toLocaleString('es-NI', { minimumFractionDigits: 2 })}`,
+        ajustada ? '✅ La cuenta de inventario 1-1-3 y el ajuste 3-99 de la balanza quedaron recalculados' :
+          '⚠ No encontré la cuenta 1-1-3 en la balanza: ajustala vos para que coincida con el total del kardex',
+        ...r.avisos.map((a) => `⚠ ${a}`),
+      ].join('\n'));
+    } catch (e) {
+      setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo convertir el reporte'}`);
     } finally {
       setOcupado(false);
     }
@@ -437,8 +558,53 @@ export default function SaldosIniciales() {
                 placeholder={'PR-100\tBOD-CEN\t50\t230.50'}
                 className="entrada cifra text-[12px] leading-5" />
               <p className="text-xs text-slate-400 mt-1">Los productos deben existir en el catálogo. Cantidad × costo debe sumar IGUAL a la cuenta Inventario.</p>
+              <label className="text-xs font-semibold text-verde cursor-pointer hover:underline inline-block mt-1">
+                📦 importar reporte de existencias del sistema viejo
+                <input type="file" accept=".xls,.xlsx" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void leerReporteExistencias(f);
+                    e.target.value = '';
+                  }} />
+              </label>
             </div>
           </div>
+
+          {reporteExi && (
+            <div className="mt-5 rounded-xl border border-borde p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-2">
+                Mapeo de columnas del reporte → bodegas del sistema
+              </div>
+              <p className="text-sm text-slate-500 mb-3">
+                Cada columna del reporte es una ubicación del sistema viejo. Elegí a qué bodega nueva va cada una
+                (varias columnas pueden caer en la misma bodega — se suman). Las que dejés en blanco se ignoran.
+              </p>
+              {bodegas.length === 0 && (
+                <p className="text-sm text-rojo mb-3">No hay bodegas activas: crealas primero en Configuración → Bodegas.</p>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                {reporteExi.candidatas.map((col) => (
+                  <div key={col}>
+                    <label className="etiqueta cifra">{col}</label>
+                    <select value={mapeo[col] ?? ''} onChange={(e) => setMapeo({ ...mapeo, [col]: e.target.value })} className="entrada">
+                      <option value="">— ignorar —</option>
+                      {bodegas.map((b) => <option key={b.codigo} value={b.codigo}>{b.codigo} · {b.nombre}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="etiqueta">Tipo de cambio (para precios en US$, opcional)</label>
+                  <input value={tipoCambio} onChange={(e) => setTipoCambio(e.target.value)} placeholder="36.80" className="entrada cifra max-w-40" />
+                </div>
+                <button onClick={() => void convertirExistencias()} disabled={ocupado} className="boton-primario">
+                  Convertir existencias
+                </button>
+                <button onClick={() => setReporteExi(null)} className="boton-suave">Cancelar</button>
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-2 mt-5">
             <button onClick={() => void validar()} disabled={ocupado || !fecha} className="boton-suave">Validar sin grabar</button>

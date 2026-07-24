@@ -670,6 +670,108 @@ rutasApertura.post('/convertir-detalle', requierePermiso('contabilidad', 'cerrar
   });
 }));
 
+/* ------------------- convertir el reporte de existencias por bodega */
+
+interface FilaExistencia {
+  codigo: string;
+  nombre: string;
+  categoria?: string;
+  costo: number;                 // costo unitario en córdobas (columna COSTO)
+  precio?: number;               // precio de venta ya convertido a NIO (opcional)
+  existencias: Array<{ bodega: string; cantidad: number }>;
+}
+
+/** Recibe el reporte de existencias YA mapeado (columna→bodega, hecho en la
+ *  pantalla), CREA los productos que falten en el catálogo (código, nombre,
+ *  categoría, precio) y devuelve la hoja de inventario para la apertura.
+ *  Cantidades microscópicas (los 0.000001 del sistema viejo) se descartan. */
+rutasApertura.post('/convertir-existencias', requierePermiso('contabilidad', 'cerrar'), envolver(async (req, res) => {
+  const { filas, crear_productos } = (req.body ?? {}) as { filas?: FilaExistencia[]; crear_productos?: boolean };
+  if (!Array.isArray(filas) || filas.length === 0) {
+    res.status(400).json({ error: 'No llegaron filas del reporte de existencias' });
+    return;
+  }
+  const bodegasBd = await pool.query('SELECT codigo FROM bodegas WHERE activa');
+  const bodegasValidas = new Set(bodegasBd.rows.map((b) => b.codigo as string));
+  if (bodegasValidas.size === 0) {
+    res.status(400).json({ error: 'No hay bodegas activas — crealas primero en Configuración → Bodegas' });
+    return;
+  }
+
+  const avisos: string[] = [];
+  const inventario: Array<{ producto: string; bodega: string; cantidad: number; costo_unitario: number }> = [];
+  const paraCrear = new Map<string, FilaExistencia>();
+  const vistos = new Set<string>();
+  let totalCent = 0;
+  let sinCosto = 0;
+
+  for (const f of filas) {
+    const codigo = String(f.codigo ?? '').trim();
+    if (!codigo || vistos.has(codigo)) continue;
+    vistos.add(codigo);
+    const costo = Number(f.costo);
+    const filasBodega = (Array.isArray(f.existencias) ? f.existencias : [])
+      .map((e) => ({ bodega: String(e.bodega ?? '').trim(), cantidad: Number(e.cantidad) }))
+      .filter((e) => Number.isFinite(e.cantidad) && e.cantidad >= 0.005); // fuera los 0.000001
+    const conStock = filasBodega.length > 0;
+    if (conStock && (!Number.isFinite(costo) || costo < 0)) {
+      sinCosto += 1;
+      continue;
+    }
+    for (const e of filasBodega) {
+      if (!bodegasValidas.has(e.bodega)) {
+        res.status(400).json({ error: `La bodega ${e.bodega} del mapeo no existe o está inactiva` });
+        return;
+      }
+      inventario.push({ producto: codigo, bodega: e.bodega, cantidad: e.cantidad, costo_unitario: costo });
+      totalCent += Math.round(e.cantidad * Math.round(costo * 100));
+    }
+    paraCrear.set(codigo, f); // el catálogo completo entra, tenga o no stock
+  }
+
+  let creados = 0;
+  if (crear_productos !== false) {
+    const usuario = req.usuario!.id;
+    await enTransaccion(async (bd: PoolClient) => {
+      for (const [codigo, f] of paraCrear) {
+        const r = await bd.query(
+          `INSERT INTO productos (codigo, nombre, unidad, categoria, precio_venta, creado_por)
+           VALUES ($1, $2, 'unidad', $3, $4, $5) ON CONFLICT (codigo) DO NOTHING`,
+          [codigo, String(f.nombre ?? codigo).trim() || codigo, String(f.categoria ?? '').trim() || null,
+           Number.isFinite(Number(f.precio)) && Number(f.precio) > 0 ? Number(f.precio) : 0, usuario]
+        );
+        creados += r.rowCount ?? 0;
+      }
+      await registrarBitacora(bd, usuario, 'convertir_existencias', 'productos', 'importador', {
+        filas: filas.length,
+        productos_creados: creados,
+        lineas_kardex: inventario.length,
+        total: totalCent / 100,
+      });
+    });
+  }
+
+  if (sinCosto > 0) {
+    avisos.push(`${sinCosto} producto(s) CON existencia vienen sin costo válido y se saltaron — revisalos en el reporte`);
+  }
+  const sinPrecio = [...paraCrear.values()].filter((f) => !(Number(f.precio) > 0)).length;
+  if (sinPrecio > 0) {
+    avisos.push(`${sinPrecio} producto(s) quedaron con precio de venta 0 — cargá los precios en Configuración → Productos (o pasá el tipo de cambio al importar)`);
+  }
+  avisos.push(
+    `Inventario valorizado del reporte: C$ ${(totalCent / 100).toFixed(2)} — la cuenta de inventario de la ` +
+    `balanza se ajusta a este total (el kardex manda; la diferencia cae en la cuenta 3-99)`
+  );
+
+  res.json({
+    inventario,
+    total: totalCent / 100,
+    productos_creados: creados,
+    lineas: inventario.length,
+    avisos,
+  });
+}));
+
 /* ------------------------------------------- limpiar datos de prueba */
 
 /** Borra TODAS las transacciones (asientos, documentos, kardex) dejando los

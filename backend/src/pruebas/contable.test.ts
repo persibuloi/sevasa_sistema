@@ -802,6 +802,35 @@ describe('convertidor de la balanza detallada del sistema viejo', () => {
   }, 60_000);
 });
 
+describe('convertidor del reporte de existencias', () => {
+  it('crea productos, arma la hoja de kardex y descarta cantidades microscópicas', async () => {
+    const r = await request(app).post('/api/apertura/convertir-existencias').send({
+      crear_productos: true,
+      filas: [
+        { codigo: 'IMP-1', nombre: 'MONITOR IMPORTADO 24', categoria: 'MONITORES', costo: 2612.2933,
+          precio: 4500.5, existencias: [{ bodega: 'BOD-CEN', cantidad: 3 }, { bodega: 'BOD-SUR', cantidad: 2 }] },
+        { codigo: 'IMP-2', nombre: 'RESIDUO DEL SISTEMA VIEJO', costo: 100,
+          existencias: [{ bodega: 'BOD-CEN', cantidad: 0.000001 }] },
+        { codigo: 'IMP-3', nombre: 'SIN STOCK PERO AL CATALOGO', costo: 50, existencias: [] },
+      ],
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.lineas).toBe(2);                       // IMP-1 en dos bodegas; el residuo fuera
+    expect(r.body.productos_creados).toBe(3);            // el catálogo entra completo, con o sin stock
+    expect(r.body.total).toBeCloseTo(2612.29 * 5, 2);    // 3 + 2 unidades al costo en centavos
+
+    const p = await pool.query(`SELECT nombre, categoria, precio_venta FROM productos WHERE codigo = 'IMP-1'`);
+    expect(p.rows[0].nombre).toBe('MONITOR IMPORTADO 24');
+    expect(p.rows[0].categoria).toBe('MONITORES');
+    expect(Number(p.rows[0].precio_venta)).toBe(4500.5);
+
+    const bodegaMala = await request(app).post('/api/apertura/convertir-existencias').send({
+      filas: [{ codigo: 'IMP-9', nombre: 'X', costo: 10, existencias: [{ bodega: 'NO-EXISTE', cantidad: 1 }] }],
+    });
+    expect(bodegaMala.status).toBe(400);
+  }, 60_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;
