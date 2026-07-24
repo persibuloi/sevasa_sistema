@@ -18,6 +18,7 @@ export default function Productos() {
   const [busqueda, setBusqueda] = useState('');
   const [form, setForm] = useState<typeof FORM_VACIO | null>(null);
   const [aviso, setAviso] = useState('');
+  const [tc, setTc] = useState<{ fecha: string; tasa: string | number } | null>(null);
 
   async function cargar() {
     try {
@@ -28,7 +29,24 @@ export default function Productos() {
   }
   useEffect(() => {
     void cargar();
+    api.get<{ fecha: string; tasa: string | number } | null>('/config/tipo-cambio').then(setTc).catch(() => undefined);
   }, []);
+
+  const tasa = Number(tc?.tasa ?? 0);
+  const enDolares = (monto: unknown): string =>
+    tasa > 0 ? (Number(monto ?? 0) / tasa).toLocaleString('es-NI', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+
+  async function actualizarTc() {
+    const nueva = prompt(`Tipo de cambio oficial del día (córdobas por US$)${tc ? ` — actual: ${Number(tc.tasa)}` : ''}:`);
+    if (!nueva) return;
+    try {
+      const r = await api.post<{ fecha: string; tasa: string | number }>('/config/tipo-cambio', { tasa: Number(nueva.replace(',', '.')) });
+      setTc(r);
+      setAviso(`✅ Tipo de cambio del ${r.fecha.slice(0, 10)}: ${Number(r.tasa)} (queda en bitácora)`);
+    } catch (e) {
+      setAviso(`❌ ${e instanceof ErrorApi ? e.message : 'No se pudo actualizar el tipo de cambio'}`);
+    }
+  }
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -77,9 +95,16 @@ export default function Productos() {
           placeholder="Buscar por código, nombre o categoría…"
           className="entrada max-w-xs"
         />
-        <button onClick={() => setForm({ ...FORM_VACIO })} className="boton-primario">
-          + Nuevo producto
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => void actualizarTc()} title="Actualizar tipo de cambio oficial (BCN)"
+            className="text-sm text-slate-500 hover:text-tinta">
+            TC: <span className="cifra font-semibold">{tasa > 0 ? tasa.toFixed(4) : 'sin definir'}</span>
+            {tc ? <span className="text-slate-400"> · {tc.fecha.slice(0, 10)}</span> : null} ✎
+          </button>
+          <button onClick={() => setForm({ ...FORM_VACIO })} className="boton-primario">
+            + Nuevo producto
+          </button>
+        </div>
       </div>
 
       {aviso && <p className="text-sm mb-3">{aviso}</p>}
@@ -164,6 +189,7 @@ export default function Productos() {
               <th>Unidad</th>
               <th className="text-right">Existencia</th>
               <th className="text-right">Costo prom. C$</th>
+              <th className="text-right">Costo US$</th>
               <th className="text-right">Precio C$</th>
               <th>Estado</th>
               <th></th>
@@ -172,7 +198,7 @@ export default function Productos() {
           <tbody>
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-14 text-center text-slate-400">
+                <td colSpan={10} className="py-14 text-center text-slate-400">
                   {busqueda ? 'Sin resultados' : 'Sin productos — creá el primero'}
                 </td>
               </tr>
@@ -187,6 +213,7 @@ export default function Productos() {
                   {Number(p.existencia ?? 0)}
                 </td>
                 <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>
+                <td className="text-right cifra text-slate-500">{enDolares(p.costo_promedio)}</td>
                 <td className="text-right cifra font-medium">{montoSiempre(p.precio_venta)}</td>
                 <td>
                   {p.activo ? <span className="insignia-verde">activo</span> : <span className="insignia-gris">inactivo</span>}

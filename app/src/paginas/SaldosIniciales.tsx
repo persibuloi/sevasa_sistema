@@ -396,6 +396,10 @@ export default function SaldosIniciales() {
             };
           });
       }
+      if (filasEnvio.length === 0) {
+        setAviso('❌ Ninguna fila del reporte coincidió con el mapeo — revisá que las bodegas mapeadas tengan existencias > 0');
+        return;
+      }
       const r = await api.post<{
         inventario: Array<{ producto: string; bodega: string; cantidad: number; costo_unitario: number }>;
         total: number; productos_creados: number; lineas: number; avisos: string[];
