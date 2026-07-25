@@ -117,8 +117,18 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
 - Tokens en `app/src/index.css` (@theme): tinta/fondo/verde/borde/ámbar/rojo.
   Fuentes: Schibsted Grotesk (UI) + IBM Plex Mono (cifras, clase `.cifra`).
 - Clases obligatorias para TODA pantalla nueva (no estilos ad-hoc):
-  `.entrada`, `.etiqueta`, `.boton-primario/.boton-suave/.boton-peligro`, `.tarjeta`,
-  `.insignia-verde/-ambar/-roja/-gris`, `.tabla`, `.cifra`.
+  `.entrada`, `.etiqueta`, `.rotulo` (título de sección), `.boton-primario/.boton-suave/
+  .boton-peligro`, `.tarjeta`, `.insignia-verde/-ambar/-roja/-gris`, `.tabla`, `.cifra`,
+  `.tecla` (atajos). Controles a 40px de alto (h-10): inputs/selects/botones alinean solos.
+- FACTURACIÓN TIPO POS (decisión del usuario — es donde viven 20 vendedores):
+  buscador con Enter/escáner que mete la línea sin soltar el teclado (F2 lo enfoca,
+  ↑↓ navegan, código exacto manda, repetir producto SUMA cantidad), modal
+  "+ Varios productos" con selección múltiple y cantidades, número de factura
+  SIEMPRE visible (el próximo de la serie en borrador), totales en barra sticky
+  abajo (patrón caja) y editor a todo el ancho. Líneas a medio llenar BLOQUEAN
+  la emisión con aviso puntual; las vacías se descartan solas.
+- Bodegas SIEMPRE en orden natural (los códigos son números del sistema viejo:
+  6 antes que 10) — regexp en el backend; jamás ordenar códigos como texto.
 - Shell: sidebar tinta con grupos (Ventas / Compras / Contabilidad / Administración).
   RESPONSIVE: en celular el sidebar es un cajón detrás del botón hamburguesa
   (se cierra solo al navegar); en facturación cada línea pasa de fila de tabla
@@ -139,8 +149,7 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
   P0001/23505/23503); los triggers ya hablan español.
 - PowerShell: los mensajes de commit NO llevan comillas dobles internas (rompen el
   here-string hacia git en PS 5.1).
-- Tests de cuadre (Jest, pendiente): asiento descuadrado imposible, balanza suma cero,
-  IVA correcto, período cerrado rechaza escritura. Corren antes de cada push.
+- La suite (Vitest, 44 pruebas — ver Seguridad) CORRE ANTES DE CADA PUSH.
 - Fases chicas probadas E2E con datos reales antes de avanzar (método Sevasa).
 
 ## Seguridad (auditoría 2026-07 — migración 014)
@@ -252,7 +261,8 @@ cd app && npm run build          # typecheck + build
 | F5 pólizas ✅ | ✅ | Importación: prorrateo de gastos (flete/seguro/DAI/ISC/agencia) al costo por valor/peso/unidades con reparto de centavos exacto; IVA de importación aparte (acreditable); liquidar → asiento de nacionalización + entrada al inventario a costo puesto en bodega (kardex entrada_poliza + promedio); anular espejo. Jalar OCs (multi, quedan recibidas al liquidar) y MULTIPÓLIZA: cada línea con su proveedor, FOB acreditado a la CxP de cada uno. Motor puro en `polizas-calculo.ts`, preview en vivo vía POST /polizas/calcular |
 | F6 estados financieros ✅ | ✅ | Balance General (utilidad del período sin cerrar cierra la ecuación; badge de cuadre A=P+C), Estado de Resultados por rango con comparativo automático del período anterior + KPIs (utilidad bruta/neta, margen), cierre del ejercicio (asiento tipo 'cierre' salda ingresos/costos/gastos contra `cuenta_resultados_acumulados`, doble confirmación, permiso cerrar). Rutas /estados/balance y /estados/resultados |
 
-| F7 paralelo | ⏳ | FASE ACTUAL: apertura real cargada (2026-06-30); falta factura de prueba E2E, inicializar consecutivos de A-SUR/A-OCC/A-CM y correr 1-2 meses en paralelo con el sistema viejo antes del corte |
+| Roles y permisos ✅ | ✅ | Administración → Roles y permisos: matriz rol×módulo×acción editable por celda (a bitácora, admin intocable); menú filtrado por módulos visibles + guardia de rutas; costo de productos solo con inventario/ver; amarre de sucursal también al LEER facturas |
+| F7 paralelo | ⏳ | FASE ACTUAL: apertura real cargada (2026-06-30); PRECIOS DE PRUEBA puestos por script (costo C$ × 1.30 en los 1,513 activos — el rediseño de la gestión de productos/precios es fase futura); falta factura de prueba E2E, inicializar consecutivos de A-SUR/A-OCC/A-CM y correr 1-2 meses en paralelo. UI pendiente elegida por el usuario: dashboard de inicio y modo oscuro (refactor de 244 colores quemados) |
 
 Decisiones clave registradas en el plan: inventario perpetuo con costo promedio (§F2),
 saldos iniciales por saldo global por tercero (§F1), multimoneda NIO/USD desde el día 1.
