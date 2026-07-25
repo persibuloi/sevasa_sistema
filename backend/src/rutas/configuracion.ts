@@ -70,10 +70,12 @@ rutasConfiguracion.delete('/sucursales/:codigo', requierePermiso('admin', 'edita
 /* ---------------------------------------------------------------- bodegas */
 
 rutasConfiguracion.get('/bodegas', envolver(async (_req, res) => {
+  // Orden NATURAL: los códigos del sistema viejo son números (1,2,…,13) y
+  // como texto quedarían 1,10,12,13,2,3… — se ordena por el valor numérico.
   const r = await pool.query(
     `SELECT b.*, s.nombre AS sucursal_nombre
      FROM bodegas b LEFT JOIN sucursales s ON s.codigo = b.sucursal
-     ORDER BY b.codigo`
+     ORDER BY NULLIF(regexp_replace(b.codigo, '\\D', '', 'g'), '')::bigint NULLS LAST, b.codigo`
   );
   res.json(r.rows);
 }));

@@ -200,6 +200,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
   const [modalLinea, setModalLinea] = useState<number | null>(null);
   const [modalMultiple, setModalMultiple] = useState(false);
+  const [miBodega, setMiBodega] = useState<string | null>(null);
 
   /** Agrega productos a la factura. Si uno ya está, SUMA la cantidad en vez de
    *  duplicar la línea (así el vendedor puede escanear el mismo código varias
@@ -238,12 +239,17 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     [vendedores, serieElegida]
   );
 
-  // Bodegas de la sucursal de la serie; la factura guarda su bodega EXPLÍCITA
+  // Bodegas de la sucursal de la serie; la factura guarda su bodega EXPLÍCITA.
+  // Orden natural: los códigos son números del sistema viejo (6 va antes que 10).
   const bodegasDeSucursal = useMemo(() => {
     if (!serieElegida?.sucursal) return [];
+    const numero = (c: string) => {
+      const soloDigitos = c.replace(/\D/g, '');
+      return soloDigitos === '' ? Number.MAX_SAFE_INTEGER : Number(soloDigitos);
+    };
     return bodegas
       .filter((b) => b.sucursal === serieElegida.sucursal)
-      .sort((a, b) => a.codigo.localeCompare(b.codigo));
+      .sort((a, b) => numero(a.codigo) - numero(b.codigo) || a.codigo.localeCompare(b.codigo));
   }, [bodegas, serieElegida]);
 
   useEffect(() => {
@@ -252,9 +258,11 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       return;
     }
     if (!bodegasDeSucursal.some((b) => b.codigo === bodegaId)) {
-      setBodegaId(bodegasDeSucursal[0]?.codigo ?? '');
+      // Preferí la bodega del usuario (su amarre); si no, la primera de la tienda
+      const propia = bodegasDeSucursal.find((b) => b.codigo === miBodega);
+      setBodegaId(propia?.codigo ?? bodegasDeSucursal[0]?.codigo ?? '');
     }
-  }, [bodegasDeSucursal]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bodegasDeSucursal, miBodega]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const bodegaVenta = bodegasDeSucursal.find((b) => b.codigo === bodegaId) ?? null;
 
@@ -286,6 +294,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     ])
       .then(([c, s, cfg, v, b, yo]) => {
         setClientes(c.filter((x) => x.activo));
+        setMiBodega(yo.bodega);
         // Amarre duro: usuario con sucursal (no admin) solo ve las series de SU tienda
         const miSucursal = !yo.roles.includes('admin') && yo.sucursal ? yo.sucursal : null;
         const deFactura = s.filter(
@@ -935,9 +944,20 @@ function BuscadorRapido({
           </span>
         </div>
         <button type="button" onClick={alAbrirMultiple} className="boton-suave h-11 shrink-0">
-          + Varios productos
+          + Varios productos <span className="text-slate-400 font-normal">({productos.length})</span>
         </button>
       </div>
+
+      {q.trim() !== '' && resultados.length === 0 && (
+        <div className="absolute z-30 mt-1.5 w-full rounded-xl border border-borde bg-white p-4 text-center shadow-[0_12px_32px_rgba(14,22,34,0.14)]">
+          <p className="text-[13px] font-semibold text-tinta">Sin coincidencias para “{q.trim()}”</p>
+          <p className="mt-1 text-[12px] text-slate-500">
+            {conBodega
+              ? `Se buscan solo los ${productos.length} productos con existencia en esta bodega. Cambiá la bodega de despacho arriba, o hacé un traslado.`
+              : 'Revisá el código o buscá por nombre.'}
+          </p>
+        </div>
+      )}
 
       {resultados.length > 0 && (
         <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-borde bg-white shadow-[0_12px_32px_rgba(14,22,34,0.14)]">
