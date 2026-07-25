@@ -4,8 +4,18 @@ Sistema contable-financiero oficial de la empresa (Nicaragua): facturación, CxC
 compras/CxP, bancos, cheques, pólizas de importación, partida doble y estados financieros.
 30 usuarios. El plan maestro vive en `PLAN_SISTEMA_CONTABLE.md` (raíz del repo).
 
-Infraestructura: Supabase "sevasa" (`dqlylcjwvcbxyxsoyhnw`, us-east-2) + Vercel (pendiente).
-Auth: Supabase Auth; el PRIMER usuario que entra queda como admin (bootstrap en `auth.ts`).
+Infraestructura: Supabase Pro "sevasa" (`dqlylcjwvcbxyxsoyhnw`, us-east-2) + Vercel Pro.
+EN PRODUCCIÓN: https://sevasa-sistema.vercel.app (GitHub persibuloi/sevasa_sistema, privado;
+push a main = deploy automático). Auth: Supabase Auth; el PRIMER usuario que entra queda
+como admin (bootstrap en `auth.ts`).
+
+⚠️ DATOS REALES CARGADOS (2026-07-24): apertura de saldos del sistema viejo al
+2026-06-30 — asiento #1 por C$ 245,016,092.96, catálogo real (517+ cuentas con el
+código viejo en guiones), 103 clientes, 42 proveedores, ~2,600 productos con kardex
+por bodega (7,611 líneas). Sucursales reales: CEN Altamira · SUR Los Robles ·
+OCC Bello Horizonte · CM Carretera a Masaya, con bodegas cuyo CÓDIGO ES EL NÚMERO
+del sistema viejo (1,2,…,13) y su caja propia. Config apunta al catálogo real.
+"LIMPIAR PRUEBAS" borraría la apertura: SOLO con orden explícita del usuario.
 
 ## Principio rector
 
@@ -174,7 +184,7 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
   existentes; GET /productos/:id/existencias = detalle por bodega). Replicar el
   patrón en compras/recibos cuando crezcan.
 
-## Deploy (Vercel — preparado, AÚN NO PUBLICADO)
+## Deploy (Vercel — EN PRODUCCIÓN)
 
 - `api/index.ts` exporta la app de Express como función serverless; `vercel.json`
   reenvía `/api/*` a la función y el resto a `index.html` (SPA). El
@@ -184,10 +194,12 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
   `CORS_ORIGEN` (OBLIGATORIA: dominio del deploy — sin ella el server no
   arranca en producción) · `PG_POOL_MAX=3` (serverless: muchas instancias
   chicas) · `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` (build del front).
-- Flujo: `vercel login` → `vercel link` → cargar variables → `vercel`
-  (preview = staging privado con protección de acceso) → probar E2E →
-  `vercel --prod` SOLO cuando el usuario lo ordene.
-- La salida operativa definitiva sigue el paralelo de 1-2 meses del plan (§F7).
+- El deploy es automático al hacer push a main (previo `npm test` SIEMPRE).
+  Supabase Pro y Vercel Pro activos; recomendado activar PITR en Supabase.
+- La salida operativa definitiva sigue el paralelo de 1-2 meses del plan (§F7):
+  FASE ACTUAL — falta la primera factura real de prueba (emitir → verificar
+  asiento con costo → anular) e inicializar el "último número" de las series
+  A-SUR / A-OCC / A-CM donde quedó el consecutivo viejo (A-CEN ya está en 1500).
 
 ## Comandos
 
@@ -205,14 +217,14 @@ cd app && npm run build          # typecheck + build
 
 | Módulo | Estado | Notas |
 |---|---|---|
-| F0 infraestructura | ✅ | Supabase + Auth + runner de migraciones. Falta deploy Vercel |
+| F0 infraestructura | ✅ | Supabase Pro + Auth + runner de migraciones + Vercel Pro EN PRODUCCIÓN (deploy automático desde main) + Docker preparado (sin probar) |
 | F1 núcleo contable | ✅ | Cuentas, períodos, asientos manuales, balanza, mayor (API + pantallas) |
 | F1 importador ✅ | ✅ | Contabilidad → Saldos iniciales (`rutas/apertura.ts`). CONVERTIDOR de la balanza detallada del sistema viejo (detalle.xls, POST /apertura/convertir-detalle): clasifica grupo 1-1-4→clientes, subárbol 2-1-1-1→proveedores, INVENTARIOS→cuenta global 1-1-3, resto→CREA el catálogo con el código viejo en guiones (+encabezados de grupo) y apunta config cxc/cxp/inventario a los enlaces 1-1-4/2-1-1-1/1-1-3; residuos y filas corruptas → cuenta de ajuste 3-99. EXISTENCIAS (POST /apertura/convertir-existencias): sube el reporte del sistema viejo (CODIGO_DETALLE/COSTO/columnas por ubicación), panel de MAPEO columna→bodega (varias columnas suman a una), CREA los productos (nombre/categoría/precio=US$×TC opcional), descarta los 0.000001, arma la hoja de kardex y RECALCULA 1-1-3 + 3-99 en la balanza (el kardex manda). Plantilla Excel descargable pre-llenada con el catálogo (5 hojas, SheetJS 0.20.3 del CDN oficial — el de npm está vulnerable) y subida de plantilla llena. También: se pegan 4 hojas desde Excel (balanza / cartera clientes / proveedores / inventario), validación en vivo SIN grabar (cuadre al centavo; cartera=CxC, proveedores=CxP, inventario=cuenta Inventario), carga en UNA tx: asiento único tipo 'apertura' + facturas de apertura serie INI por cliente (auxiliares SIN asiento — los recibos se aplican hasta cero) + compras INI por proveedor (pagables en Bancos) + kardex `ajuste_entrada` origen 'apertura' (fija promedio). Anular = contra-asiento + reversas (bloqueado si hay cobros/pagos encima). Terceros faltantes se crean opcionalmente; productos deben existir. Zona de peligro "LIMPIAR PRUEBAS": TRUNCATE de todas las transacciones (catálogos, usuarios y bitácora intactos; consecutivos/promedios/períodos reiniciados; queda en bitácora) — para pasar de pruebas a carga real |
 | F2 facturación | ✅ | Borrador → emitir (row-lock + asiento) → anular. Vendedor opcional |
 | F2 facturas manuales | ✅ | Series tipo 'manual' por sucursal (sin talonarios); el nº del papel se digita al grabar; papel dañado → anulada sin cliente/montos; control de huecos por serie en Configuración |
 | F2 CxC | ✅ | Recibos con aplicaciones, notas de crédito (devolución/rebaja), cartera con antigüedad |
 | Inventario + compras | ✅ | Kardex, costo promedio, OC → compra → CxP; costo de venta automático |
-| Configuración | ✅ | Sucursales (con cuenta de caja propia), bodegas, vendedores (amarrados a tienda), series (número inicial / talonario desde-Nº), parámetros, clientes, proveedores, productos |
+| Configuración | ✅ | Sucursales (con cuenta de caja propia), bodegas, vendedores (amarrados a tienda), series (número inicial / talonario desde-Nº), parámetros, clientes, proveedores, productos. Bodegas/sucursales/series SIN historia se pueden BORRAR (FK protege; serie INI y las de config intocables); con historia solo se desactivan. Tipo de cambio BCN: GET/POST /api/config/tipo-cambio (tabla tipos_cambio, editable desde Productos); Productos muestra costo US$ = costo C$ / tasa vigente |
 | Usuarios ✅ | ✅ | Administración → Usuarios: alta completa (login+ficha+roles) en una tx, edición, desactivar (nunca borrar), reset de clave; amarres sucursal/bodega/vendedor con enforcement duro en facturas (series) y traslados (origen). Foto: diferida |
 | Traslados | ✅ | Entre bodegas, sin asiento (solo kardex doble al promedio); exige existencia en origen; anulación regresa la mercadería. Flujo: se recibe en bodega central → traslado a tiendas. Filtro parametrizable: al facturar solo se ven productos con existencia en la bodega de la tienda (`ventas_filtrar_por_bodega`) |
 | F2 pendiente | ⏳ | Impresión formato DGI (DECISIÓN: se deja de ÚLTIMO, es maquillaje), restyle pantallas F1 |
@@ -221,5 +233,11 @@ cd app && npm run build          # typecheck + build
 | F5 pólizas ✅ | ✅ | Importación: prorrateo de gastos (flete/seguro/DAI/ISC/agencia) al costo por valor/peso/unidades con reparto de centavos exacto; IVA de importación aparte (acreditable); liquidar → asiento de nacionalización + entrada al inventario a costo puesto en bodega (kardex entrada_poliza + promedio); anular espejo. Jalar OCs (multi, quedan recibidas al liquidar) y MULTIPÓLIZA: cada línea con su proveedor, FOB acreditado a la CxP de cada uno. Motor puro en `polizas-calculo.ts`, preview en vivo vía POST /polizas/calcular |
 | F6 estados financieros ✅ | ✅ | Balance General (utilidad del período sin cerrar cierra la ecuación; badge de cuadre A=P+C), Estado de Resultados por rango con comparativo automático del período anterior + KPIs (utilidad bruta/neta, margen), cierre del ejercicio (asiento tipo 'cierre' salda ingresos/costos/gastos contra `cuenta_resultados_acumulados`, doble confirmación, permiso cerrar). Rutas /estados/balance y /estados/resultados |
 
+| F7 paralelo | ⏳ | FASE ACTUAL: apertura real cargada (2026-06-30); falta factura de prueba E2E, inicializar consecutivos de A-SUR/A-OCC/A-CM y correr 1-2 meses en paralelo con el sistema viejo antes del corte |
+
 Decisiones clave registradas en el plan: inventario perpetuo con costo promedio (§F2),
 saldos iniciales por saldo global por tercero (§F1), multimoneda NIO/USD desde el día 1.
+Enlaces reales decididos (2026-07-24): ventas→4-01 (todas las ventas nuevas a una sola
+cuenta; las ventas-por-cliente del sistema viejo quedan como historia), IVA→2-1-1-4-53,
+IVA acreditable→1-3-1-1-02, costo→5-03-01-01, resultados acumulados→3-09-02-02,
+caja general→1-01-01 (respaldo; cada sucursal usa su caja automática propia).
