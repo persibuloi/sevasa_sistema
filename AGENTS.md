@@ -19,8 +19,12 @@ autorizados (rol contador).
 - `backend/` — Node + Express 4 + TypeScript estricto (un `undefined` silencioso puede
   descuadrar un asiento; TS lo atrapa en compilación)
 - `migrations/` — SQL numeradas `001_...` a `008_...` — TODO el esquema versionado
-- `docker/` — docker-compose para portabilidad futura; hoy NO hay Docker en esta máquina:
-  se desarrolla contra Supabase directo
+- `docker/` — stack COMPLETO listo (backend.Dockerfile multi-stage con migraciones al
+  arrancar, app.Dockerfile con nginx + proxy /api, compose con .env.ejemplo) — PENDIENTE
+  DE PROBAR: no hay Docker en esta máquina; se desarrolla contra Supabase directo.
+  CLAVE: el login vive en Supabase Auth → la base debe ser Supabase (nube o
+  self-hosted); un Postgres pelado no sirve (el perfil `local` del compose es
+  solo para respaldos)
 - `datos-prueba/` — exports del sistema viejo (EXCLUIDA de git: datos reales no van al historial)
 
 ## Reglas duras de la BD (NO relajarlas)
