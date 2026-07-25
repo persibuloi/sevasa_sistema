@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, ErrorApi } from '../api';
 import type { Bodega, Cliente, Compra, OrdenCompra, Producto, RetencionTipo, Sucursal } from '../tipos';
 import { montoSiempre } from '../formato';
-import PanelAsiento from '../componentes/PanelAsiento';
 
 const PESTANAS = [
   { clave: 'compras', titulo: 'Compras' },
@@ -540,9 +539,6 @@ function EditorCompra({ id, prefill, alVolver }: { id: number | null; prefill: P
           )}
         </div>
       </div>
-
-      {/* El detalle transaccional: inventario, IVA acreditable, CxP/caja y retenciones */}
-      {compra?.asiento_id && <PanelAsiento asientoId={compra.asiento_id} />}
     </div>
   );
 }

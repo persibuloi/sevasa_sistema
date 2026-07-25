@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, ErrorApi } from '../api';
 import type { Asiento, Cuenta } from '../tipos';
 import { monto, montoSiempre } from '../formato';
+import ModalAsiento from '../componentes/ModalAsiento';
 
 interface LineaForm {
   cuenta: string;
@@ -16,6 +17,7 @@ export default function Asientos() {
   const [cuentas, setCuentas] = useState<Cuenta[]>([]);
   const [aviso, setAviso] = useState('');
   const [mostrandoForm, setMostrandoForm] = useState(false);
+  const [verAsiento, setVerAsiento] = useState<number | null>(null);
 
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [concepto, setConcepto] = useState('');
@@ -240,7 +242,12 @@ export default function Asientos() {
             {asientos.map((a) => {
               const total = a.movimientos.reduce((s, m) => s + Number(m.debito), 0);
               return (
-                <tr key={a.id} className={`border-t border-slate-100 ${a.anulado ? 'opacity-50' : ''}`}>
+                <tr
+                  key={a.id}
+                  onClick={() => setVerAsiento(a.id)}
+                  className={`cursor-pointer border-t border-slate-100 transition-colors hover:bg-slate-50 ${a.anulado ? 'opacity-50' : ''}`}
+                  title="Ver el detalle del asiento"
+                >
                   <td className="px-4 py-2 font-mono">{a.id}</td>
                   <td className="px-4 py-2">{a.fecha.slice(0, 10)}</td>
                   <td className="px-4 py-2 text-slate-500">{a.tipo_origen}</td>
@@ -253,9 +260,18 @@ export default function Asientos() {
                       <span className="text-green-700">vigente</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-right space-x-3 whitespace-nowrap">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setVerAsiento(a.id); }}
+                      className="text-sm font-semibold text-verde hover:text-verde-oscuro"
+                    >
+                      Ver
+                    </button>
                     {!a.anulado && a.tipo_origen !== 'contra_asiento' && (
-                      <button onClick={() => void anular(a.id)} className="text-red-600 hover:underline">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void anular(a.id); }}
+                        className="text-sm text-red-600 hover:underline"
+                      >
                         Anular
                       </button>
                     )}
@@ -266,6 +282,8 @@ export default function Asientos() {
           </tbody>
         </table>
       </div>
+
+      {verAsiento !== null && <ModalAsiento asientoId={verAsiento} alCerrar={() => setVerAsiento(null)} />}
     </div>
   );
 }

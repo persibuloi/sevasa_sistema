@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ErrorApi } from '../api';
 import type { Bodega, Cliente, Factura, Producto, Serie, Sesion, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
-import PanelAsiento from '../componentes/PanelAsiento';
 
 type Vista = { modo: 'lista' } | { modo: 'editor'; id: number | null };
 
@@ -888,9 +887,6 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
         </div>
 
       </div>
-
-      {/* El detalle transaccional: caja/CxC, ventas, IVA, costo e inventario */}
-      {factura?.asiento_id && <PanelAsiento asientoId={factura.asiento_id} />}
 
       {!soloLectura && incompletas.length > 0 && (
         <div className="mt-3 rounded-lg border border-ambar/30 bg-ambar-suave p-3 text-[13px]">
