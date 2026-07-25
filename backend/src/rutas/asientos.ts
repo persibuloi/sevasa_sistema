@@ -22,13 +22,15 @@ const SQL_ASIENTO_COMPLETO = `
   SELECT a.*,
          COALESCE(
            json_agg(json_build_object(
-             'id', m.id, 'cuenta', m.cuenta, 'debito', m.debito, 'credito', m.credito,
+             'id', m.id, 'cuenta', m.cuenta, 'cuenta_nombre', c.nombre,
+             'debito', m.debito, 'credito', m.credito,
              'moneda', m.moneda, 'tipo_cambio', m.tipo_cambio, 'monto_origen', m.monto_origen,
              'tercero_id', m.tercero_id, 'documento_ref', m.documento_ref
            ) ORDER BY m.id) FILTER (WHERE m.id IS NOT NULL), '[]'
          ) AS movimientos
   FROM asientos a
-  LEFT JOIN movimientos m ON m.asiento_id = a.id`;
+  LEFT JOIN movimientos m ON m.asiento_id = a.id
+  LEFT JOIN cuentas c ON c.codigo = m.cuenta`;
 
 async function verificarPeriodoAbierto(anoMes: string): Promise<string | null> {
   const p = await pool.query('SELECT estado FROM periodos WHERE ano_mes = $1', [anoMes]);
