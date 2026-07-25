@@ -496,18 +496,48 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     }
   }
 
+  // Qué número va a tomar esta factura al emitir (el vendedor necesita saberlo)
+  const proximoNumero =
+    serieElegida && serieElegida.tipo === 'sistema'
+      ? `${serieElegida.prefijo}${String(Number(serieElegida.ultimo_numero) + 1).padStart(6, '0')}`
+      : null;
+
   return (
-    <div className="max-w-5xl">
+    <div>
       <button onClick={alVolver} className="text-sm font-semibold text-slate-500 hover:text-tinta mb-4">
         ← Volver al listado
       </button>
+
+      {/* Encabezado: el número SIEMPRE a la vista — emitido o el que va a tomar */}
+      {(!factura || factura.estado === 'borrador') && (
+        <div className="tarjeta mb-4 flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+          <div>
+            <div className="rotulo">
+              {serieManual ? 'Factura manual (talonario)' : 'Próximo número de la serie'}
+            </div>
+            <div className="cifra text-2xl font-extrabold text-tinta">
+              {serieManual
+                ? numeroManual
+                  ? `${serieElegida?.prefijo ?? ''}${numeroManual}`
+                  : <span className="text-slate-300">digitá el Nº del papel</span>
+                : proximoNumero ?? <span className="text-slate-300">elegí una serie</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="insignia-gris">borrador</span>
+            <span className="max-w-xs text-[11px] leading-snug text-slate-400">
+              El consecutivo se reserva recién al emitir: un borrador descartado no quema números.
+            </span>
+          </div>
+        </div>
+      )}
 
       {factura && factura.estado !== 'borrador' && (
         <div className={`tarjeta px-6 py-4 mb-4 flex items-center justify-between flex-wrap gap-3 ${
           factura.estado === 'anulada' ? 'opacity-80' : ''
         }`}>
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">Factura</div>
+            <div className="rotulo">Factura</div>
             <div className="text-2xl font-extrabold cifra text-tinta">{factura.numero_completo}</div>
           </div>
           <InsigniaEstado estado={factura.estado} />
