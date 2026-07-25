@@ -91,6 +91,15 @@ Por ACCIÓN vía tabla `permisos` (rol → módulo → ver/crear/editar/anular/c
 Módulos en uso: `contabilidad`, `facturacion`, `compras`, `cxc`, `bancos`, `polizas`,
 `inventario`, `admin`. El rol `admin` pasa todo (bypass en `requierePermiso`).
 Roles: admin, contador, cajero, facturador, comprador, consulta.
+MATRIZ EDITABLE: Administración → Roles y permisos (`rutas/permisos.ts`, celda a
+celda, a bitácora; el rol admin no se toca — nadie puede dejarse fuera). El MENÚ se
+arma con los módulos que el usuario puede VER (GET /api/yo trae `modulos`; mapeo
+RUTA_MODULO en App.tsx: productos/traslados→inventario, clientes/cobranza→cxc) y
+una guardia redirige rutas escritas a mano; el backend rechaza igual (defensa real).
+DATO SENSIBLE: el COSTO de productos solo viaja con `inventario/ver` (`tienePermiso`
+en rutas/productos.ts — un facturador ve precios y existencias, nunca costos; el
+kardex exige inventario/ver). La seguridad de datos vive en el BACKEND, no en RLS:
+la base está sellada (401 vía REST) y el único camino es la API.
 
 Usuarios (Administración → Usuarios, `rutas/usuarios.ts`): el admin crea la cuenta
 completa en UNA transacción — login en `auth.users`/`auth.identities` vía SQL

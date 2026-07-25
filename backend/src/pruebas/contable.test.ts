@@ -852,6 +852,55 @@ describe('convertidor del reporte de existencias', () => {
   }, 60_000);
 });
 
+describe('matriz de permisos y datos sensibles', () => {
+  it('el costo de productos solo lo ve quien tiene inventario/ver', async () => {
+    // El usuario de la suite tiene los roles facturador Y comprador en la BD
+    // (tienePermiso mira los roles REALES): inventario fuera para ambos
+    await pool.query(`DELETE FROM permisos WHERE rol IN ('facturador', 'comprador') AND modulo = 'inventario'`);
+    const facturador = JSON.stringify({ roles: ['facturador'], sucursal: null, bodega: null });
+
+    const sinCosto = await request(app).get('/api/productos').set('x-prueba-usuario', facturador);
+    expect(sinCosto.status).toBe(200);
+    expect(sinCosto.body.length).toBeGreaterThan(0);
+    for (const p of sinCosto.body) {
+      expect(p.costo_promedio, `${p.codigo} no debería traer costo`).toBeUndefined();
+      expect(p.precio_venta, 'el precio SÍ viaja').toBeDefined();
+    }
+    // el kardex (trae costos) queda vedado por completo
+    const kardex = await request(app).get('/api/productos/1/kardex').set('x-prueba-usuario', facturador);
+    expect(kardex.status).toBe(403);
+
+    // el admin sigue viendo todo
+    const conCosto = await request(app).get('/api/productos');
+    expect(conCosto.body[0].costo_promedio).toBeDefined();
+  }, 60_000);
+
+  it('la matriz se edita por celda, queda en bitácora y gobierna los módulos del menú', async () => {
+    const facturador = JSON.stringify({ roles: ['facturador'], sucursal: null, bodega: null });
+
+    // apagar cxc/ver al facturador → su sesión ya no trae el módulo
+    const apagar = await request(app).put('/api/permisos').send({ rol: 'facturador', modulo: 'cxc', accion: 'ver', permitido: false });
+    expect(apagar.status).toBe(200);
+    const yo1 = await request(app).get('/api/yo').set('x-prueba-usuario', facturador);
+    expect(yo1.body.modulos).not.toContain('cxc');
+    // y el backend rechaza la cartera aunque escriban la URL
+    const cartera = await request(app).get('/api/cxc/cartera').set('x-prueba-usuario', facturador);
+    expect(cartera.status).toBe(403);
+
+    // prenderlo de nuevo → vuelve
+    await request(app).put('/api/permisos').send({ rol: 'facturador', modulo: 'cxc', accion: 'ver', permitido: true });
+    const yo2 = await request(app).get('/api/yo').set('x-prueba-usuario', facturador);
+    expect(yo2.body.modulos).toContain('cxc');
+
+    // la matriz solo la maneja el admin
+    const ajeno = await request(app).get('/api/permisos').set('x-prueba-usuario', facturador);
+    expect(ajeno.status).toBe(403);
+
+    const bitacora = await request(app).get('/api/bitacora?accion=editar_permiso');
+    expect(bitacora.body.total).toBeGreaterThanOrEqual(2);
+  }, 60_000);
+});
+
 describe('varios vendedores facturando A LA VEZ', () => {
   it('20 emisiones simultáneas: sin duplicados, sin huecos, existencia exacta y asientos cuadrados', async () => {
     // Fixture propio: no depende del estado que dejaron las pruebas anteriores

@@ -133,6 +133,39 @@ export const autenticar: RequestHandler = (req, res, next) => {
   })().catch(next);
 };
 
+export const MODULOS = [
+  'contabilidad', 'facturacion', 'compras', 'cxc', 'bancos', 'polizas', 'inventario', 'admin',
+] as const;
+
+/** ¿El usuario tiene (módulo, acción)? — la misma regla que requierePermiso,
+ *  como función, para decisiones de contenido (ej. ocultar costos). */
+export async function tienePermiso(
+  usuario: UsuarioSesion,
+  modulo: string,
+  accion: string
+): Promise<boolean> {
+  if (usuario.roles.includes('admin')) return true;
+  const r = await pool.query(
+    `SELECT 1 FROM permisos p
+     JOIN usuario_roles ur ON ur.rol = p.rol
+     WHERE ur.usuario_id = $1 AND p.modulo = $2 AND p.accion = $3 LIMIT 1`,
+    [usuario.id, modulo, accion]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Módulos que el usuario puede VER — el front arma el menú con esto. */
+export async function modulosVisibles(usuario: UsuarioSesion): Promise<string[]> {
+  if (usuario.roles.includes('admin')) return [...MODULOS];
+  const r = await pool.query(
+    `SELECT DISTINCT p.modulo FROM permisos p
+     JOIN usuario_roles ur ON ur.rol = p.rol
+     WHERE ur.usuario_id = $1 AND p.accion = 'ver'`,
+    [usuario.id]
+  );
+  return r.rows.map((x) => x.modulo as string);
+}
+
 /** Autorización por acción (no solo por vista): admin pasa siempre; el resto
  *  necesita la fila (rol, módulo, acción) en la tabla permisos. */
 export function requierePermiso(modulo: string, accion: string): RequestHandler {

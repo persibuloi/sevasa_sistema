@@ -58,6 +58,9 @@ export default function Productos() {
     return () => clearTimeout(t);
   }, [busqueda]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // El backend solo manda el costo a quien tiene permiso de inventario
+  const veCostos = productos.some((p) => p.costo_promedio !== undefined);
+
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   function irA(p: number) {
     const destino = Math.min(Math.max(1, p), paginas);
@@ -226,8 +229,8 @@ export default function Productos() {
               <th>Categoría</th>
               <th>Unidad</th>
               <th className="text-right">Existencia</th>
-              <th className="text-right">Costo prom. C$</th>
-              <th className="text-right">Costo US$</th>
+              {veCostos && <th className="text-right">Costo prom. C$</th>}
+              {veCostos && <th className="text-right">Costo US$</th>}
               <th className="text-right">Precio C$</th>
               <th>Estado</th>
               <th></th>
@@ -254,8 +257,8 @@ export default function Productos() {
                       {Number(p.existencia ?? 0)} {abierto === p.id ? '▾' : '▸'}
                     </button>
                   </td>
-                  <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>
-                  <td className="text-right cifra text-slate-500">{enDolares(p.costo_promedio)}</td>
+                  {veCostos && <td className="text-right cifra text-slate-500">{montoSiempre(p.costo_promedio)}</td>}
+                  {veCostos && <td className="text-right cifra text-slate-500">{enDolares(p.costo_promedio)}</td>}
                   <td className="text-right cifra font-medium">{montoSiempre(p.precio_venta)}</td>
                   <td>
                     {p.activo ? <span className="insignia-verde">activo</span> : <span className="insignia-gris">inactivo</span>}

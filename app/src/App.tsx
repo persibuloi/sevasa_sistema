@@ -21,6 +21,8 @@ import Configuracion from './paginas/Configuracion';
 import Bitacora from './paginas/Bitacora';
 import Usuarios from './paginas/Usuarios';
 import SaldosIniciales from './paginas/SaldosIniciales';
+import Permisos from './paginas/Permisos';
+import { api } from './api';
 
 export default function App() {
   const [sesion, setSesion] = useState<Session | null>(null);
@@ -237,6 +239,7 @@ const GRUPOS = [
           { ruta: '/configuracion/parametros', titulo: 'Parámetros' },
         ] },
       { ruta: '/usuarios', titulo: 'Usuarios', trazos: ['M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2', 'M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M21 21v-2a4 4 0 0 0-3-3.85', 'M16 3.15A4 4 0 0 1 16 11'] },
+      { ruta: '/permisos', titulo: 'Roles y permisos', trazos: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', 'M9 12l2 2 4-4'] },
       { ruta: '/bitacora', titulo: 'Bitácora', trazos: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M8 13h8', 'M8 17h5'] },
     ],
   },
@@ -246,6 +249,32 @@ interface SubItem {
   ruta: string;
   titulo: string;
 }
+
+/** Qué módulo de permisos gobierna cada ruta del menú. El menú solo muestra
+ *  las rutas cuyos módulos el usuario puede VER (GET /api/yo trae la lista);
+ *  el backend rechaza igual aunque alguien escriba la URL a mano. */
+const RUTA_MODULO: Record<string, string> = {
+  '/facturas': 'facturacion',
+  '/clientes': 'cxc',
+  '/productos': 'inventario',
+  '/cobranza': 'cxc',
+  '/compras': 'compras',
+  '/traslados': 'inventario',
+  '/polizas': 'polizas',
+  '/bancos': 'bancos',
+  '/balanza': 'contabilidad',
+  '/asientos': 'contabilidad',
+  '/mayor': 'contabilidad',
+  '/catalogo': 'contabilidad',
+  '/periodos': 'contabilidad',
+  '/retenciones': 'contabilidad',
+  '/estados': 'contabilidad',
+  '/saldos-iniciales': 'contabilidad',
+  '/configuracion': 'admin',
+  '/usuarios': 'admin',
+  '/permisos': 'admin',
+  '/bitacora': 'admin',
+};
 
 const TITULOS: Record<string, string> = {
   '/facturas': 'Facturación',
@@ -266,6 +295,7 @@ const TITULOS: Record<string, string> = {
   '/configuracion': 'Configuración',
   '/bitacora': 'Bitácora de auditoría',
   '/usuarios': 'Usuarios',
+  '/permisos': 'Roles y permisos',
   '/saldos-iniciales': 'Saldos iniciales (apertura)',
 };
 
@@ -303,9 +333,32 @@ function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
 function Sistema({ sesion }: { sesion: Session }) {
   const { pathname } = useLocation();
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [modulos, setModulos] = useState<string[] | null>(null);
 
   // Al navegar en celular, el menú se cierra solo
   useEffect(() => setMenuAbierto(false), [pathname]);
+
+  // La sesión trae los módulos que este usuario puede VER
+  useEffect(() => {
+    api.get<{ modulos?: string[] }>('/yo')
+      .then((yo) => setModulos(yo.modulos ?? []))
+      .catch(() => setModulos([]));
+  }, []);
+
+  const puedeVer = (ruta: string): boolean => {
+    if (modulos === null) return true; // cargando: no parpadear
+    const modulo = RUTA_MODULO[ruta];
+    return !modulo || modulos.includes(modulo);
+  };
+
+  // Guardia: si escribieron a mano una ruta que no les toca, a su primera pantalla
+  const base = `/${pathname.split('/')[1] ?? ''}`;
+  const todasLasRutas: string[] = (GRUPOS as ReadonlyArray<{ items: ReadonlyArray<{ ruta: string }> }>)
+    .flatMap((g) => g.items.map((i) => i.ruta));
+  const primeraPermitida = todasLasRutas.find((r) => puedeVer(r)) ?? '/facturas';
+  if (modulos !== null && RUTA_MODULO[base] && !puedeVer(base)) {
+    return <Navigate to={primeraPermitida} replace />;
+  }
 
   return (
     <div className="min-h-screen lg:flex">
@@ -332,12 +385,15 @@ function Sistema({ sesion }: { sesion: Session }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
-          {GRUPOS.map((g) => (
+          {GRUPOS.map((g) => {
+            const visibles = g.items.filter((i) => puedeVer(i.ruta));
+            if (visibles.length === 0) return null; // grupo sin nada que mostrar
+            return (
             <div key={g.titulo} className="mt-4">
               <div className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                 {g.titulo}
               </div>
-              {g.items.map((item) => {
+              {visibles.map((item) => {
                 const subs: readonly SubItem[] = 'subs' in item ? item.subs : [];
                 const abierto = pathname.startsWith(item.ruta);
                 return (
@@ -378,7 +434,8 @@ function Sistema({ sesion }: { sesion: Session }) {
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="border-t border-tinta-borde px-5 py-4">
@@ -421,6 +478,7 @@ function Sistema({ sesion }: { sesion: Session }) {
             <Route path="/bitacora" element={<Bitacora />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/saldos-iniciales" element={<SaldosIniciales />} />
+            <Route path="/permisos" element={<Permisos />} />
             <Route path="*" element={<Navigate to="/facturas" replace />} />
           </Routes>
         </main>

@@ -141,6 +141,7 @@ export interface Sesion {
   sucursal: string | null;
   bodega: string | null;
   vendedor_id: number | null;
+  modulos?: string[];
 }
 
 export interface ClaveConfig {

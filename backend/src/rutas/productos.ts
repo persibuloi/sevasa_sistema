@@ -1,14 +1,24 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { envolver } from '../util';
-import { requierePermiso } from '../auth';
+import { requierePermiso, tienePermiso } from '../auth';
 import { registrarBitacora } from '../bitacora';
 
 export const rutasProductos = Router();
 
+/** El COSTO es dato de inventario, no de ventas: quien solo factura ve
+ *  precios y existencias, nunca cuánto nos cuesta la mercadería. */
+function sinCosto<T extends { costo_promedio?: unknown }>(filas: T[]): T[] {
+  return filas.map(({ costo_promedio, ...resto }) => {
+    void costo_promedio;
+    return resto as T;
+  });
+}
+
 rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
   // ?bodega=BOD-CEN agrega la existencia de ESA bodega (para el filtro por tienda)
   const bodega = typeof req.query.bodega === 'string' && req.query.bodega !== '' ? req.query.bodega : null;
+  const veCostos = await tienePermiso(req.usuario!, 'inventario', 'ver');
 
   // Con ?pagina= responde paginado del servidor: {productos, total} — el
   // catálogo real trae miles de filas y cargarlo entero pone lento todo.
@@ -32,8 +42,9 @@ rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (r
        ORDER BY p.codigo LIMIT $1 OFFSET $2`,
       parametros
     );
+    const filas = r.rows.map(({ total, ...p }) => p);
     res.json({
-      productos: r.rows.map(({ total, ...p }) => p),
+      productos: veCostos ? filas : sinCosto(filas),
       total: Number(r.rows[0]?.total ?? 0),
     });
     return;
@@ -51,7 +62,7 @@ rutasProductos.get('/', requierePermiso('facturacion', 'ver'), envolver(async (r
      ORDER BY p.codigo`,
     [bodega]
   );
-  res.json(r.rows);
+  res.json(veCostos ? r.rows : sinCosto(r.rows));
 }));
 
 // Existencias de UN producto, bodega por bodega (para el detalle en pantalla)
@@ -66,8 +77,8 @@ rutasProductos.get('/:id/existencias', requierePermiso('facturacion', 'ver'), en
   res.json(r.rows);
 }));
 
-// Kardex de un producto (últimos 200 movimientos)
-rutasProductos.get('/:id/kardex', requierePermiso('facturacion', 'ver'), envolver(async (req, res) => {
+// Kardex de un producto (últimos 200 movimientos) — trae costos: es de inventario
+rutasProductos.get('/:id/kardex', requierePermiso('inventario', 'ver'), envolver(async (req, res) => {
   const r = await pool.query(
     `SELECT m.*, b.nombre AS bodega_nombre
      FROM movimientos_inventario m LEFT JOIN bodegas b ON b.codigo = m.bodega
