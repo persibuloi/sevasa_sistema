@@ -155,6 +155,27 @@ describe('compras e inventario (costo promedio)', () => {
 });
 
 describe('facturación', () => {
+  it('rechaza líneas basura: sin descripción, con espacios o sin cantidad', async () => {
+    const base = { serie: 'A-CEN', fecha: '2026-07-10', tercero_id: 1, tipo_pago: 'contado', bodega: 'BOD-CEN' };
+    for (const linea of [
+      { descripcion: '', cantidad: 1, precio_unitario: 100 },
+      { descripcion: '   ', cantidad: 1, precio_unitario: 100 },   // solo espacios
+      { descripcion: 'Servicio', cantidad: 0, precio_unitario: 100 },
+      { descripcion: 'Servicio', cantidad: 1, precio_unitario: -5 },
+    ]) {
+      const r = await request(app).post('/api/facturas').send({ ...base, lineas: [linea] });
+      expect(r.status, `debería rechazar ${JSON.stringify(linea)}`).toBe(400);
+    }
+    // y la descripción válida se graba SIN los espacios de sobra
+    const ok = await request(app).post('/api/facturas').send({
+      ...base, lineas: [{ descripcion: '  Servicio de instalación  ', cantidad: 1, precio_unitario: 100 }],
+    });
+    expect(ok.status).toBe(201);
+    const l = await pool.query('SELECT descripcion FROM factura_lineas WHERE factura_id = $1', [ok.body.id]);
+    expect(l.rows[0].descripcion).toBe('Servicio de instalación');
+    await request(app).delete(`/api/facturas/${ok.body.id}`);
+  }, 60_000);
+
   it('emite factura de crédito: IVA exacto, costo de venta y kardex en el MISMO asiento', async () => {
     const borrador = await request(app).post('/api/facturas').send({
       serie: 'A-CEN', fecha: '2026-07-10', tercero_id: 1, tipo_pago: 'credito', bodega: 'BOD-CEN',

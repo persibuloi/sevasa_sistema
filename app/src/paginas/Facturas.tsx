@@ -368,11 +368,36 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
     return res;
   }, [bloquearSinExistencia, bodegaVenta, lineas, productos]);
 
+  /** Una línea está VACÍA si no se tocó (se descarta sola, no estorba).
+   *  Está INCOMPLETA si el usuario empezó a llenarla y le falta algo: eso SÍ
+   *  bloquea, porque antes se colaba una línea basura sin que nadie avisara. */
+  const lineaVacia = (l: LineaForm) => !l.productoId && !l.descripcion.trim();
+
+  const incompletas = useMemo(() => {
+    const problemas: string[] = [];
+    lineas.forEach((l, i) => {
+      if (lineaVacia(l)) return;
+      const donde = `Línea ${i + 1}${l.descripcion.trim() ? ` (${l.descripcion.trim()})` : ''}`;
+      if (!l.descripcion.trim()) problemas.push(`${donde}: falta la descripción`);
+      else if (!(Number(l.cantidad) > 0)) problemas.push(`${donde}: la cantidad debe ser mayor que cero`);
+      else if (!(Number(l.precio) > 0)) problemas.push(`${donde}: el precio debe ser mayor que cero`);
+    });
+    return problemas;
+  }, [lineas]);
+
   const valida =
     serie !== '' &&
     terceroId !== '' &&
+    incompletas.length === 0 &&
     lineas.some((l) => l.descripcion && Number(l.cantidad) > 0 && Number(l.precio) > 0);
   const puedeEmitir = valida && faltantes.length === 0;  // el borrador sí se guarda
+
+  /** Añade una línea libre, pero NUNCA apila vacías una tras otra. */
+  function agregarLineaLibre() {
+    const ultima = lineas[lineas.length - 1];
+    if (ultima && lineaVacia(ultima)) return;
+    setLineas([...lineas, { ...LINEA_NUEVA }]);
+  }
 
   function cuerpo() {
     return {
@@ -384,7 +409,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       tipo_pago: tipoPago,
       notas,
       lineas: lineas
-        .filter((l) => l.descripcion)
+        .filter((l) => l.descripcion.trim() !== '')
         .map((l) => ({
           producto_id: l.productoId ? Number(l.productoId) : null,
           descripcion: l.descripcion,
@@ -395,6 +420,12 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   }
 
   async function guardarBorrador(): Promise<Factura | null> {
+    // Las líneas en blanco no viajan: se limpian también en pantalla para que
+    // lo que el vendedor ve sea exactamente lo que se graba
+    setLineas((previas) => {
+      const conContenido = previas.filter((l) => !lineaVacia(l));
+      return conContenido.length > 0 ? conContenido : previas;
+    });
     setOcupado(true);
     setAviso('');
     try {
@@ -643,8 +674,9 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                 const pide = Number(l.cantidad || 0);
                 const falta = Boolean(prod && bodegaVenta && pide > disp);
                 const importe = Math.round(pide * Math.round(Number(l.precio || 0) * 100)) / 100;
+                const vacia = lineaVacia(l);
                 return (
-                  <tr key={i} className="group">
+                  <tr key={i} className={`group ${vacia ? 'opacity-45' : ''}`}>
                     <td className="py-1 pr-2">
                       <button
                         type="button"
@@ -733,7 +765,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
             <div className="flex items-center gap-4 mt-1 pl-1">
               <button
                 type="button"
-                onClick={() => setLineas([...lineas, { ...LINEA_NUEVA }])}
+                onClick={agregarLineaLibre}
                 className="text-[13px] font-semibold text-slate-500 hover:text-tinta transition-colors"
               >
                 + Línea libre <span className="font-normal text-slate-400">(servicio sin producto)</span>
@@ -759,6 +791,14 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
         </div>
 
       </div>
+
+      {!soloLectura && incompletas.length > 0 && (
+        <div className="mt-3 rounded-lg border border-ambar/30 bg-ambar-suave p-3 text-[13px]">
+          <p className="mb-1 font-semibold text-ambar">Hay líneas sin terminar — corregilas o quitalas:</p>
+          {incompletas.map((p) => <p key={p} className="text-ambar/90">{p}</p>)}
+          <p className="mt-1 text-slate-500">Las líneas que quedaron en blanco se descartan solas al grabar.</p>
+        </div>
+      )}
 
       {!soloLectura && faltantes.length > 0 && (
         <div className="mt-3 rounded-lg border border-rojo/25 bg-rojo-suave p-3 text-[13px]">

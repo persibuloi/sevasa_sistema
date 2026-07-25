@@ -31,13 +31,15 @@ function calcularTotales(lineas: unknown, tasaIva: number): TotalesFactura | nul
   for (const l of lineas as LineaEntrada[]) {
     const cantidad = Number(l.cantidad);
     const precio = Number(l.precio_unitario);
-    if (!l.descripcion || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precio) || precio < 0) {
+    // trim: una descripción de puros espacios NO es descripción
+    const descripcion = String(l.descripcion ?? '').trim();
+    if (!descripcion || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precio) || precio < 0) {
       return null;
     }
     const totalCent = Math.round(cantidad * aCentavos(precio));
     subtotalCent += totalCent;
     limpias.push({
-      descripcion: l.descripcion,
+      descripcion,
       cantidad,
       precio_unitario: precio,
       producto_id: l.producto_id ?? null,
