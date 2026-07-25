@@ -632,6 +632,27 @@ describe('amarres duros por sucursal y bodega (enforcement)', () => {
               lineas: [{ descripcion: 'Servicio', cantidad: 1, precio_unitario: 100 }] });
     expect(r.status).toBe(201);
   }, 60_000);
+
+  it('el amarre aplica también al LEER: solo se ven las facturas de MI sucursal', async () => {
+    const simulado = JSON.stringify({ roles: ['facturador'], sucursal: 'SUR' });
+
+    const lista = await request(app).get('/api/facturas').set('x-prueba-usuario', simulado);
+    expect(lista.status).toBe(200);
+    expect(lista.body.facturas.length).toBeGreaterThan(0);   // su propia factura A-SUR sí aparece
+    for (const f of lista.body.facturas) {
+      expect(f.serie, `no debería ver la factura ${f.id} de la serie ${f.serie}`).toBe('A-SUR');
+    }
+
+    // una factura de otra tienda por URL directa: 403
+    const ajena = await pool.query(`SELECT id FROM facturas WHERE serie = 'A-CEN' LIMIT 1`);
+    const r = await request(app).get(`/api/facturas/${ajena.rows[0].id}`).set('x-prueba-usuario', simulado);
+    expect(r.status).toBe(403);
+
+    // el admin sigue viendo todas las tiendas
+    const todas = await request(app).get('/api/facturas');
+    const series = new Set((todas.body.facturas as Array<{ serie: string }>).map((f) => f.serie));
+    expect(series.size).toBeGreaterThan(1);
+  }, 60_000);
 });
 
 describe('apertura de saldos iniciales (importador F1)', () => {

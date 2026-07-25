@@ -107,7 +107,7 @@ completa en UNA transacción — login en `auth.users`/`auth.identities` vía SQ
 roles y AMARRES: `usuarios.sucursal/bodega/vendedor_id` (migración 024). Los usuarios
 NUNCA se borran: se desactivan. Reset de clave por admin; todo va a bitácora.
 AMARRE DURO (decisión del usuario): con sucursal asignada y sin rol admin, solo se
-facturan series de ESA sucursal (`serieDeMiSucursal` en borrador Y emitir); con
+facturan series de ESA sucursal (`serieDeMiSucursal` en borrador Y emitir) y solo se VEN las facturas de esa sucursal (listado y detalle filtran por la serie); con
 bodega/sucursal asignada, los traslados solo se ORIGINAN desde la bodega propia (o
 las de su sucursal); enviar hacia cualquier bodega es libre. El front espeja los
 filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (última).

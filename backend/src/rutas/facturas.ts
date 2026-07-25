@@ -113,19 +113,30 @@ rutasFacturas.get('/', requierePermiso('facturacion', 'ver'), envolver(async (re
   const porPagina = Math.min(Math.max(Number(req.query.por_pagina ?? 50) || 50, 1), 200);
   const pagina = Math.max(Number(req.query.pagina ?? 1) || 1, 1);
 
+  // Amarre duro TAMBIÉN al leer: con sucursal asignada (y sin rol admin) solo
+  // se ven las facturas de series de ESA sucursal — lo que pasa en las otras
+  // tiendas no es asunto del facturador
+  const u = req.usuario!;
+  const miSucursal = !u.roles.includes('admin') && u.sucursal ? u.sucursal : null;
+
   const filtros = `
     WHERE ($1::text IS NULL OR f.estado = $1)
       AND ($2::text IS NULL OR f.numero_completo ILIKE $2 OR t.nombre ILIKE $2)
       AND ($3::date IS NULL OR f.fecha >= $3)
-      AND ($4::date IS NULL OR f.fecha <= $4)`;
-  const parametros = [estado, q, desde, hasta];
+      AND ($4::date IS NULL OR f.fecha <= $4)
+      AND ($5::text IS NULL OR s.sucursal = $5)`;
+  const parametros = [estado, q, desde, hasta, miSucursal];
 
   const total = await pool.query(
-    `SELECT count(*)::int AS n FROM facturas f LEFT JOIN terceros t ON t.id = f.tercero_id ${filtros}`,
+    `SELECT count(*)::int AS n
+     FROM facturas f
+     LEFT JOIN terceros t ON t.id = f.tercero_id
+     JOIN series s ON s.serie = f.serie
+     ${filtros}`,
     parametros
   );
   const r = await pool.query(
-    `${SQL_LISTA} ${filtros} ORDER BY f.id DESC LIMIT $5 OFFSET $6`,
+    `${SQL_LISTA} ${filtros} ORDER BY f.id DESC LIMIT $6 OFFSET $7`,
     [...parametros, porPagina, (pagina - 1) * porPagina]
   );
   res.json({ facturas: r.rows, total: total.rows[0].n, pagina, por_pagina: porPagina });
@@ -136,6 +147,15 @@ rutasFacturas.get('/:id', requierePermiso('facturacion', 'ver'), envolver(async 
   if (r.rowCount === 0) {
     res.status(404).json({ error: 'Factura no existe' });
     return;
+  }
+  // El mismo amarre al abrir una factura puntual por URL
+  const u = req.usuario!;
+  if (!u.roles.includes('admin') && u.sucursal) {
+    const s = await pool.query('SELECT sucursal FROM series WHERE serie = $1', [r.rows[0].serie]);
+    if (s.rows[0]?.sucursal && s.rows[0].sucursal !== u.sucursal) {
+      res.status(403).json({ error: `Esa factura es de otra sucursal — pertenecés a ${u.sucursal}` });
+      return;
+    }
   }
   const lineas = await pool.query('SELECT * FROM factura_lineas WHERE factura_id = $1 ORDER BY id', [req.params.id]);
   res.json({ ...r.rows[0], lineas: lineas.rows });
