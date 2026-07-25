@@ -27,33 +27,52 @@ body {
 }
 
 @layer components {
+  /* Altura fija 40px en TODO control: los formularios alinean solos */
   .entrada {
-    @apply w-full rounded-lg border border-borde bg-white px-3 py-2 text-sm text-tinta
-           shadow-[0_1px_2px_rgba(14,22,34,0.04)] transition-colors
+    @apply w-full h-10 rounded-lg border border-borde bg-white px-3 text-[14px] text-tinta
+           transition-[border-color,box-shadow] duration-150
            placeholder:text-slate-400
-           focus:outline-none focus:border-verde focus:ring-2 focus:ring-verde/20
-           disabled:bg-fondo disabled:text-slate-400;
+           focus:outline-none focus:border-verde focus:ring-4 focus:ring-verde/12
+           disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed;
   }
+  textarea.entrada { @apply h-auto py-2.5 leading-relaxed; }
+  select.entrada { @apply pr-8 cursor-pointer; }
   .etiqueta {
-    @apply block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 mb-1.5;
+    @apply block text-[12px] font-semibold text-slate-600 mb-1.5;
+  }
+  /* Rótulo de sección (el que antes hacía de etiqueta en mayúsculas) */
+  .rotulo {
+    @apply block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400;
   }
   .boton-primario {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-verde px-4 py-2
-           text-sm font-semibold text-white shadow-[0_1px_2px_rgba(10,95,70,0.4)]
-           transition hover:bg-verde-oscuro active:translate-y-px
+    @apply inline-flex items-center justify-center gap-2 h-10 rounded-lg bg-verde px-4
+           text-[14px] font-semibold text-white shadow-[0_1px_2px_rgba(10,95,70,0.35)]
+           transition-[background-color,transform,box-shadow] duration-150
+           hover:bg-verde-oscuro hover:shadow-[0_2px_8px_rgba(10,95,70,0.25)]
+           active:translate-y-px
+           focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-verde/25
            disabled:opacity-40 disabled:pointer-events-none;
   }
   .boton-suave {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-borde bg-white
-           px-4 py-2 text-sm font-semibold text-tinta transition
-           hover:border-slate-300 hover:bg-fondo active:translate-y-px;
+    @apply inline-flex items-center justify-center gap-2 h-10 rounded-lg border border-borde bg-white
+           px-4 text-[14px] font-semibold text-tinta transition-[background-color,border-color] duration-150
+           hover:border-slate-300 hover:bg-slate-50 active:translate-y-px
+           focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-verde/15
+           disabled:opacity-40 disabled:pointer-events-none;
   }
   .boton-peligro {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm
-           font-semibold text-rojo transition hover:bg-rojo-suave;
+    @apply inline-flex items-center justify-center gap-2 h-10 rounded-lg px-4 text-[14px]
+           font-semibold text-rojo transition-colors duration-150 hover:bg-rojo-suave
+           focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rojo/15
+           disabled:opacity-40 disabled:pointer-events-none;
   }
   .tarjeta {
-    @apply rounded-2xl border border-borde bg-white shadow-[0_1px_3px_rgba(14,22,34,0.05)];
+    @apply rounded-xl border border-borde bg-white shadow-[0_1px_2px_rgba(14,22,34,0.04)];
+  }
+  /* Atajo de teclado */
+  .tecla {
+    @apply inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded
+           border border-borde bg-slate-50 font-mono text-[10px] font-semibold text-slate-500;
   }
   .insignia-verde, .insignia-ambar, .insignia-roja, .insignia-gris {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold;
@@ -67,12 +86,12 @@ body {
     @apply font-mono tabular-nums;
   }
 
-  .tabla { @apply w-full text-sm; }
+  .tabla { @apply w-full text-[14px]; }
   .tabla thead th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em]
+    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.1em]
            text-slate-400 border-b border-borde bg-white;
   }
-  .tabla tbody td { @apply px-4 py-2.5 border-t border-borde/60; }
-  .tabla tbody tr { @apply transition-colors; }
-  .tabla tbody tr:hover { @apply bg-fondo/60; }
+  .tabla tbody td { @apply px-4 py-3 border-t border-borde/60; }
+  .tabla tbody tr { @apply transition-colors duration-100; }
+  .tabla tbody tr:hover { @apply bg-slate-50/70; }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ErrorApi } from '../api';
 import type { Bodega, Cliente, Factura, Producto, Serie, Sesion, Vendedor } from '../tipos';
 import { montoSiempre } from '../formato';
@@ -199,6 +199,32 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
   const [notas, setNotas] = useState('');
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_NUEVA }]);
   const [modalLinea, setModalLinea] = useState<number | null>(null);
+  const [modalMultiple, setModalMultiple] = useState(false);
+
+  /** Agrega productos a la factura. Si uno ya está, SUMA la cantidad en vez de
+   *  duplicar la línea (así el vendedor puede escanear el mismo código varias
+   *  veces). Las líneas vacías se descartan al entrar el primer producto. */
+  function agregarProductos(nuevos: Array<{ producto: Producto; cantidad: number }>) {
+    setLineas((previas) => {
+      const copia = [...previas];
+      for (const { producto, cantidad } of nuevos) {
+        const i = copia.findIndex((l) => l.productoId === String(producto.id));
+        const actual = copia[i];
+        if (actual) {
+          copia[i] = { ...actual, cantidad: String(Number(actual.cantidad || 0) + cantidad) };
+        } else {
+          copia.push({
+            productoId: String(producto.id),
+            descripcion: producto.nombre,
+            cantidad: String(cantidad),
+            precio: String(producto.precio_venta),
+          });
+        }
+      }
+      const limpias = copia.filter((l) => l.productoId !== '' || l.descripcion.trim() !== '');
+      return limpias.length > 0 ? limpias : [{ ...LINEA_NUEVA }];
+    });
+  }
 
   const soloLectura = factura !== null && factura.estado !== 'borrador';
   const serieElegida = series.find((x) => x.serie === serie);
@@ -573,58 +599,66 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
             )}
           </div>
 
-          {/* Líneas */}
-          <div className="flex items-center justify-between">
-            <label className="etiqueta">Detalle</label>
+          {/* ---------------- Detalle: buscador tipo POS + líneas ---------------- */}
+          <div className="flex items-end justify-between mb-2">
+            <span className="rotulo">Detalle</span>
             {filtrarPorBodega && bodegaVenta && (
-              <span className="text-[11px] text-slate-400 mb-1.5">
-                Mostrando productos con existencia en {bodegaVenta.nombre}
-              </span>
+              <span className="text-[11px] text-slate-400">existencias de {bodegaVenta.nombre}</span>
             )}
           </div>
-          <table className="w-full text-sm mb-2">
+
+          {!soloLectura && (
+            <BuscadorRapido
+              productos={filtrarPorBodega && bodegaVenta ? productosVisibles : productos}
+              conBodega={bodegaVenta !== null}
+              alAgregar={(p) => agregarProductos([{ producto: p, cantidad: 1 }])}
+              alAbrirMultiple={() => setModalMultiple(true)}
+            />
+          )}
+
+          <table className="w-full text-[13px] mt-3">
             <thead>
-              <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 text-left">
-                <th className="pb-2 w-44">Producto</th>
+              <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 text-left">
+                <th className="pb-2 pl-1 w-32">Código</th>
                 <th className="pb-2">Descripción</th>
-                <th className="pb-2 w-24">Cant.</th>
-                <th className="pb-2 w-32">Precio unit.</th>
-                <th className="pb-2 w-28 text-right">Importe</th>
-                <th className="w-8"></th>
+                <th className="pb-2 w-24 text-right">Cant.</th>
+                <th className="pb-2 w-32 text-right">Precio</th>
+                <th className="pb-2 w-32 text-right">Importe</th>
+                <th className="w-9"></th>
               </tr>
             </thead>
             <tbody>
               {lineas.map((l, i) => {
-                const importe = Math.round(Number(l.cantidad || 0) * Math.round(Number(l.precio || 0) * 100)) / 100;
+                const prod = productos.find((p) => String(p.id) === l.productoId);
+                const disp = Number(prod?.existencia_bodega ?? 0);
+                const pide = Number(l.cantidad || 0);
+                const falta = Boolean(prod && bodegaVenta && pide > disp);
+                const importe = Math.round(pide * Math.round(Number(l.precio || 0) * 100)) / 100;
                 return (
-                  <tr key={i}>
+                  <tr key={i} className="group">
                     <td className="py-1 pr-2">
-                      {(() => {
-                        const prod = productos.find((p) => String(p.id) === l.productoId);
-                        const disp = Number(prod?.existencia_bodega ?? 0);
-                        return (
-                          <button
-                            type="button"
-                            disabled={soloLectura}
-                            onClick={() => setModalLinea(i)}
-                            className="entrada text-left flex items-center justify-between gap-1 disabled:bg-fondo"
-                            title={prod ? `${prod.codigo} · ${prod.nombre}` : 'Buscar producto'}
-                          >
-                            {prod ? (
-                              <>
-                                <span className="cifra truncate">{prod.codigo}</span>
-                                {bodegaVenta && (
-                                  <span className={`cifra text-[11px] shrink-0 ${disp <= 0 ? 'text-rojo font-semibold' : 'text-slate-400'}`}>
-                                    {disp}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-slate-400">🔍 Buscar…</span>
+                      <button
+                        type="button"
+                        disabled={soloLectura}
+                        onClick={() => setModalLinea(i)}
+                        title={prod ? `${prod.codigo} · ${prod.nombre}` : 'Elegir producto'}
+                        className="h-10 w-full rounded-lg border border-borde bg-slate-50 px-2.5 text-left
+                                   transition-colors hover:border-verde/40 hover:bg-white
+                                   disabled:opacity-70 disabled:hover:bg-slate-50"
+                      >
+                        {prod ? (
+                          <span className="flex items-center justify-between gap-1.5">
+                            <span className="cifra text-[12px] font-medium truncate">{prod.codigo}</span>
+                            {bodegaVenta && (
+                              <span className={`cifra text-[10px] shrink-0 ${falta ? 'text-rojo font-bold' : 'text-slate-400'}`}>
+                                {disp}
+                              </span>
                             )}
-                          </button>
-                        );
-                      })()}
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-slate-400">— libre —</span>
+                        )}
+                      </button>
                     </td>
                     <td className="py-1 pr-2">
                       <input
@@ -647,7 +681,9 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                         onChange={(e) =>
                           setLineas(lineas.map((x, j) => (j === i ? { ...x, cantidad: e.target.value } : x)))
                         }
-                        className="entrada text-right"
+                        className={`entrada text-right cifra font-semibold ${
+                          falta ? 'border-rojo/50 bg-rojo-suave/40 text-rojo' : ''
+                        }`}
                       />
                     </td>
                     <td className="py-1 pr-2">
@@ -661,16 +697,17 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                         onChange={(e) =>
                           setLineas(lineas.map((x, j) => (j === i ? { ...x, precio: e.target.value } : x)))
                         }
-                        className="entrada text-right"
+                        className="entrada text-right cifra"
                       />
                     </td>
-                    <td className="py-1 text-right cifra text-slate-600">{montoSiempre(importe)}</td>
+                    <td className="py-1 pr-1 text-right cifra font-semibold text-tinta">{montoSiempre(importe)}</td>
                     <td className="text-center">
                       {!soloLectura && lineas.length > 1 && (
                         <button
                           type="button"
                           onClick={() => setLineas(lineas.filter((_, j) => j !== i))}
-                          className="text-slate-300 hover:text-rojo transition-colors"
+                          className="h-7 w-7 rounded-md text-slate-300 opacity-0 transition group-hover:opacity-100
+                                     hover:bg-rojo-suave hover:text-rojo focus:opacity-100"
                           title="Quitar línea"
                         >
                           ✕
@@ -682,14 +719,22 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
               })}
             </tbody>
           </table>
+
           {!soloLectura && (
-            <button
-              type="button"
-              onClick={() => setLineas([...lineas, { ...LINEA_NUEVA }])}
-              className="text-sm font-semibold text-verde hover:text-verde-oscuro"
-            >
-              + Agregar línea
-            </button>
+            <div className="flex items-center gap-4 mt-1 pl-1">
+              <button
+                type="button"
+                onClick={() => setLineas([...lineas, { ...LINEA_NUEVA }])}
+                className="text-[13px] font-semibold text-slate-500 hover:text-tinta transition-colors"
+              >
+                + Línea libre <span className="font-normal text-slate-400">(servicio sin producto)</span>
+              </button>
+              {lineas.some((l) => l.productoId) && (
+                <span className="text-[11px] text-slate-400">
+                  {lineas.filter((l) => l.productoId).length} producto(s) en la factura
+                </span>
+              )}
+            </div>
           )}
 
           <div className="mt-5">
@@ -765,8 +810,10 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
         <ModalProductos
           productos={filtrarPorBodega && bodegaVenta ? productosVisibles : productos}
           bodegaNombre={bodegaVenta?.nombre ?? null}
+          multiple={false}
           alCerrar={() => setModalLinea(null)}
-          alElegir={(p) => {
+          alConfirmar={(elegidos) => {
+            const p = elegidos[0]?.producto ?? null;
             setLineas((previas) =>
               previas.map((x, j) =>
                 j === modalLinea
@@ -780,23 +827,176 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           }}
         />
       )}
+
+      {modalMultiple && (
+        <ModalProductos
+          productos={filtrarPorBodega && bodegaVenta ? productosVisibles : productos}
+          bodegaNombre={bodegaVenta?.nombre ?? null}
+          multiple
+          alCerrar={() => setModalMultiple(false)}
+          alConfirmar={(elegidos) => {
+            agregarProductos(elegidos);
+            setModalMultiple(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/* -------------------------------------------------------------------------
+   Buscador tipo punto de venta: escribís (o escaneás) y Enter mete la línea.
+   Nunca hay que soltar el teclado — es la pantalla donde el vendedor vive.
+   ------------------------------------------------------------------------- */
+function BuscadorRapido({
+  productos,
+  conBodega,
+  alAgregar,
+  alAbrirMultiple,
+}: {
+  productos: Producto[];
+  conBodega: boolean;
+  alAgregar: (p: Producto) => void;
+  alAbrirMultiple: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [resaltado, setResaltado] = useState(0);
+  const entrada = useRef<HTMLInputElement>(null);
+
+  const resultados = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return [];
+    // El código exacto manda (es lo que manda un escáner), después los que empiezan igual
+    const puntaje = (p: Producto) => {
+      const cod = p.codigo.toLowerCase();
+      if (cod === t) return 0;
+      if (cod.startsWith(t)) return 1;
+      if (p.nombre.toLowerCase().startsWith(t)) return 2;
+      return 3;
+    };
+    return productos
+      .filter((p) => p.codigo.toLowerCase().includes(t) || p.nombre.toLowerCase().includes(t))
+      .sort((a, b) => puntaje(a) - puntaje(b))
+      .slice(0, 7);
+  }, [productos, q]);
+
+  useEffect(() => setResaltado(0), [q]);
+
+  // F2 desde cualquier lugar de la pantalla trae el foco acá
+  useEffect(() => {
+    const atajo = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        entrada.current?.focus();
+        entrada.current?.select();
+      }
+    };
+    window.addEventListener('keydown', atajo);
+    return () => window.removeEventListener('keydown', atajo);
+  }, []);
+
+  function meter(p: Producto | undefined) {
+    if (!p) return;
+    alAgregar(p);
+    setQ('');            // listo para el siguiente: el vendedor no suelta el teclado
+    entrada.current?.focus();
+  }
+
+  function teclas(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setResaltado((v) => Math.min(v + 1, resultados.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setResaltado((v) => Math.max(v - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      meter(resultados[resaltado]);
+    } else if (e.key === 'Escape') {
+      setQ('');
+    }
+  }
+
+  return (
+    <div className="relative">
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+          <input
+            ref={entrada}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={teclas}
+            placeholder="Escaneá o escribí código / nombre y dale Enter…"
+            className="entrada h-11 pl-9 pr-16 text-[15px]"
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+            <span className="tecla">F2</span>
+          </span>
+        </div>
+        <button type="button" onClick={alAbrirMultiple} className="boton-suave h-11 shrink-0">
+          + Varios productos
+        </button>
+      </div>
+
+      {resultados.length > 0 && (
+        <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-borde bg-white shadow-[0_12px_32px_rgba(14,22,34,0.14)]">
+          {resultados.map((p, i) => {
+            const disp = Number(p.existencia_bodega ?? 0);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onMouseEnter={() => setResaltado(i)}
+                onClick={() => meter(p)}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                  i === resaltado ? 'bg-verde-suave' : 'hover:bg-slate-50'
+                }`}
+              >
+                <span className="cifra w-24 shrink-0 text-[12px] font-semibold text-slate-500">{p.codigo}</span>
+                <span className="flex-1 truncate text-[13px]">{p.nombre}</span>
+                {conBodega && (
+                  <span className={`cifra w-14 shrink-0 text-right text-[12px] ${disp <= 0 ? 'text-rojo font-bold' : 'text-slate-400'}`}>
+                    {disp}
+                  </span>
+                )}
+                <span className="cifra w-24 shrink-0 text-right text-[13px] font-semibold">
+                  {montoSiempre(p.precio_venta)}
+                </span>
+              </button>
+            );
+          })}
+          <div className="flex items-center gap-3 border-t border-borde bg-slate-50 px-3 py-1.5 text-[11px] text-slate-400">
+            <span><span className="tecla">↑</span> <span className="tecla">↓</span> moverse</span>
+            <span><span className="tecla">Enter</span> agregar</span>
+            <span><span className="tecla">Esc</span> limpiar</span>
+            <span className="ml-auto">el mismo producto dos veces suma cantidad</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Modal de productos. En modo `multiple` se marcan varios con su cantidad y
+   entran TODOS de un golpe (el pedido de mostrador típico: 8 renglones). */
 function ModalProductos({
   productos,
   bodegaNombre,
-  alElegir,
+  multiple,
+  alConfirmar,
   alCerrar,
 }: {
   productos: Producto[];
   bodegaNombre: string | null;
-  alElegir: (p: Producto | null) => void;
+  multiple: boolean;
+  alConfirmar: (elegidos: Array<{ producto: Producto; cantidad: number }>) => void;
   alCerrar: () => void;
 }) {
   const [busqueda, setBusqueda] = useState('');
+  const [marcados, setMarcados] = useState<Record<number, number>>({});
   const q = busqueda.trim().toLowerCase();
+
   const filtrados = useMemo(
     () =>
       !q
@@ -807,64 +1007,155 @@ function ModalProductos({
     [productos, q]
   );
 
+  const elegidos = useMemo(
+    () =>
+      Object.entries(marcados)
+        .map(([id, cantidad]) => ({ producto: productos.find((p) => p.id === Number(id)), cantidad }))
+        .filter((x): x is { producto: Producto; cantidad: number } => Boolean(x.producto) && x.cantidad > 0),
+    [marcados, productos]
+  );
+  const totalElegido = elegidos.reduce(
+    (t, x) => t + Math.round(x.cantidad * Math.round(Number(x.producto.precio_venta) * 100)),
+    0
+  ) / 100;
+
+  function alternar(p: Producto) {
+    setMarcados((prev) => {
+      const copia = { ...prev };
+      if (copia[p.id]) delete copia[p.id];
+      else copia[p.id] = 1;
+      return copia;
+    });
+  }
+
+  useEffect(() => {
+    const cerrarConEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') alCerrar(); };
+    window.addEventListener('keydown', cerrarConEsc);
+    return () => window.removeEventListener('keydown', cerrarConEsc);
+  }, [alCerrar]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/40 p-4 pt-[8vh]" onClick={alCerrar}>
-      <div className="w-full max-w-2xl tarjeta p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b border-borde">
-          <div className="flex items-center justify-between mb-3">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/50 p-4 pt-[7vh] backdrop-blur-[2px]" onClick={alCerrar}>
+      <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-borde bg-white shadow-[0_24px_64px_rgba(14,22,34,0.28)]"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-borde p-4">
+          <div className="mb-3 flex items-center justify-between">
             <h3 className="font-bold text-tinta">
-              Buscar producto{bodegaNombre ? <span className="font-normal text-slate-400"> · existencia en {bodegaNombre}</span> : null}
+              {multiple ? 'Agregar productos' : 'Elegir producto'}
+              {bodegaNombre && <span className="font-normal text-slate-400"> · existencia en {bodegaNombre}</span>}
             </h3>
-            <button onClick={alCerrar} className="text-slate-400 hover:text-tinta">✕</button>
+            <button onClick={alCerrar} className="h-8 w-8 rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-tinta">✕</button>
           </div>
           <input
             autoFocus
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && filtrados[0]) alElegir(filtrados[0]);
-              if (e.key === 'Escape') alCerrar();
+              if (e.key === 'Enter' && !multiple && filtrados[0]) alConfirmar([{ producto: filtrados[0], cantidad: 1 }]);
             }}
-            placeholder="Código o nombre… (Enter elige el primero)"
+            placeholder={multiple ? 'Filtrar por código o nombre…' : 'Código o nombre… (Enter elige el primero)'}
             className="entrada"
           />
         </div>
-        <div className="max-h-[55vh] overflow-y-auto">
+
+        <div className="max-h-[52vh] overflow-y-auto">
           <table className="tabla">
-            <thead className="sticky top-0">
+            <thead className="sticky top-0 z-10">
               <tr>
+                {multiple && <th className="w-10"></th>}
                 <th>Código</th>
                 <th>Producto</th>
                 <th className="text-right">Existencia</th>
                 <th className="text-right">Precio C$</th>
+                {multiple && <th className="w-28 text-right">Cantidad</th>}
               </tr>
             </thead>
             <tbody>
               {filtrados.length === 0 && (
-                <tr><td colSpan={4} className="py-10 text-center text-slate-400">Sin coincidencias</td></tr>
+                <tr><td colSpan={multiple ? 6 : 4} className="py-10 text-center text-slate-400">Sin coincidencias</td></tr>
               )}
-              {filtrados.slice(0, 100).map((p) => {
+              {filtrados.slice(0, 150).map((p) => {
                 const disp = Number(p.existencia_bodega ?? 0);
+                const marcado = Boolean(marcados[p.id]);
                 return (
-                  <tr key={p.id} onClick={() => alElegir(p)} className="cursor-pointer">
+                  <tr
+                    key={p.id}
+                    onClick={() => (multiple ? alternar(p) : alConfirmar([{ producto: p, cantidad: 1 }]))}
+                    className={`cursor-pointer ${marcado ? 'bg-verde-suave/60' : ''}`}
+                  >
+                    {multiple && (
+                      <td className="pr-0">
+                        <input
+                          type="checkbox"
+                          checked={marcado}
+                          onChange={() => alternar(p)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 accent-[var(--color-verde)] cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="cifra font-medium">{p.codigo}</td>
-                    <td>{p.nombre}</td>
-                    <td className={`text-right cifra ${disp <= 0 ? 'text-rojo font-semibold' : ''}`}>{disp}</td>
+                    <td className="max-w-xs truncate" title={p.nombre}>{p.nombre}</td>
+                    <td className={`text-right cifra ${disp <= 0 ? 'text-rojo font-semibold' : 'text-slate-500'}`}>{disp}</td>
                     <td className="text-right cifra">{montoSiempre(p.precio_venta)}</td>
+                    {multiple && (
+                      <td className="py-1 text-right">
+                        {marcado && (
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="1"
+                            value={marcados[p.id]}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                              setMarcados((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))
+                            }
+                            className="entrada h-8 w-24 text-right cifra font-semibold"
+                          />
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          {filtrados.length > 100 && (
-            <p className="p-3 text-center text-xs text-slate-400">Mostrando 100 de {filtrados.length} — afiná la búsqueda</p>
+          {filtrados.length > 150 && (
+            <p className="p-3 text-center text-xs text-slate-400">
+              Mostrando 150 de {filtrados.length} — afiná la búsqueda
+            </p>
           )}
         </div>
-        <div className="p-3 border-t border-borde flex justify-between">
-          <button onClick={() => alElegir(null)} className="text-sm text-slate-500 hover:text-tinta">
-            Línea libre (servicio, sin producto)
-          </button>
-          <button onClick={alCerrar} className="boton-suave px-4 py-1.5">Cancelar</button>
+
+        <div className="flex items-center justify-between gap-3 border-t border-borde bg-slate-50 p-3">
+          {multiple ? (
+            <span className="text-[13px] text-slate-500">
+              {elegidos.length === 0 ? (
+                'Marcá los productos que querés agregar'
+              ) : (
+                <>
+                  <strong className="text-tinta">{elegidos.length}</strong> producto(s) ·{' '}
+                  <span className="cifra font-semibold text-verde-oscuro">C$ {montoSiempre(totalElegido)}</span>
+                </>
+              )}
+            </span>
+          ) : (
+            <button onClick={() => alConfirmar([])} className="text-[13px] text-slate-500 hover:text-tinta">
+              Línea libre (servicio, sin producto)
+            </button>
+          )}
+          <div className="flex gap-2">
+            <button onClick={alCerrar} className="boton-suave">Cancelar</button>
+            {multiple && (
+              <button
+                onClick={() => alConfirmar(elegidos)}
+                disabled={elegidos.length === 0}
+                className="boton-primario"
+              >
+                Agregar {elegidos.length > 0 ? elegidos.length : ''}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
