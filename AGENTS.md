@@ -111,6 +111,9 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
   `.entrada`, `.etiqueta`, `.boton-primario/.boton-suave/.boton-peligro`, `.tarjeta`,
   `.insignia-verde/-ambar/-roja/-gris`, `.tabla`, `.cifra`.
 - Shell: sidebar tinta con grupos (Ventas / Compras / Contabilidad / Administración).
+  RESPONSIVE: en celular el sidebar es un cajón detrás del botón hamburguesa
+  (se cierra solo al navegar); en facturación cada línea pasa de fila de tabla
+  a TARJETA por debajo de `md`, y la barra de totales se apila.
 - Patrón de páginas: lista con filtros → editor con panel de resumen sticky, o pestañas
   dentro de la página (ver Facturas, Compras, Cobranza, Configuración).
 
@@ -176,8 +179,15 @@ filtros vía GET /api/yo (sesión con amarres). Foto de usuario: diferida (últi
 
 - Consecutivos PROBADOS bajo carga: `npm run prueba:carga` — 20 clientes × 25
   emisiones contra una serie: 0 duplicados, 0 huecos, último número exacto.
-- Pool pg: max 10 (PG_POOL_MAX), idle 30s, connect timeout 10s — el pooler de
-  Supabase multiplexa por transacción.
+- FLUJO COMPLETO bajo concurrencia (en la suite): 20 vendedores emitiendo
+  facturas reales A LA VEZ (borrador→emitir con asiento+kardex) — verifica
+  0 duplicados, 0 huecos, existencia descontada EXACTA y todos los asientos
+  cuadrados.
+- Pool pg: max 10 (PG_POOL_MAX), idle 30s, connect timeout 20s. El timeout
+  era 10s y una ráfaga de 20 emisiones agotaba el pool: algunas morían con
+  "Error interno". Ahora hacen COLA (se despachan en un par de segundos) y
+  si aun así se satura, el error middleware responde 503 con mensaje claro
+  ("el sistema está ocupado… no se grabó nada"), nunca un 500 mudo.
 - Listados de volumen con paginación servidor: facturas (q + fechas + pagina/
   por_pagina, respuesta {facturas, total}) y productos (?pagina= activa el modo
   {productos, total}; sin ?pagina= responde el array plano para los selectores

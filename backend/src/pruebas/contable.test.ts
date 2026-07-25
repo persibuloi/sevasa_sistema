@@ -852,6 +852,77 @@ describe('convertidor del reporte de existencias', () => {
   }, 60_000);
 });
 
+describe('varios vendedores facturando A LA VEZ', () => {
+  it('20 emisiones simultáneas: sin duplicados, sin huecos, existencia exacta y asientos cuadrados', async () => {
+    // Fixture propio: no depende del estado que dejaron las pruebas anteriores
+    await pool.query(
+      `INSERT INTO productos (codigo, nombre, unidad, precio_venta)
+       VALUES ('CONC-1', 'Producto concurrencia', 'unidad', 100) ON CONFLICT (codigo) DO NOTHING`
+    );
+    const prod = await pool.query(`SELECT id FROM productos WHERE codigo = 'CONC-1'`);
+    const productoId = Number(prod.rows[0].id);
+    await pool.query(
+      `INSERT INTO series (serie, sucursal, tipo, prefijo, documento)
+       VALUES ('CONC', 'CEN', 'sistema', 'CONC-', 'factura') ON CONFLICT (serie) DO NOTHING`
+    );
+    await pool.query(`UPDATE series SET ultimo_numero = 0 WHERE serie = 'CONC'`);
+
+    // Mercadería para vender: 500 unidades en la bodega
+    const compra = await request(app).post('/api/compras').send({
+      tercero_id: 2, numero_documento: 'FC-CONC', fecha: '2026-07-25', tipo_pago: 'credito',
+      bodega: 'BOD-CEN', lineas: [{ producto_id: productoId, cantidad: 500, costo_unitario: 50 }],
+    });
+    const registrada = await request(app).post(`/api/compras/${compra.body.id}/registrar`).send({});
+    expect(registrada.status).toBe(200);
+
+    const antes = await pool.query(
+      `SELECT cantidad FROM existencias WHERE producto_id = $1 AND bodega = 'BOD-CEN'`, [productoId]
+    );
+    const stockAntes = Number(antes.rows[0].cantidad);
+
+    const VENDEDORES = 20;
+    const POR_FACTURA = 2;
+
+    // Cada vendedor arma su borrador y lo emite — todos al mismo tiempo
+    const emisiones = await Promise.all(
+      Array.from({ length: VENDEDORES }, async (_, i) => {
+        const borrador = await request(app).post('/api/facturas').send({
+          serie: 'CONC', fecha: '2026-07-25', tercero_id: 1, tipo_pago: 'contado', bodega: 'BOD-CEN',
+          lineas: [{ producto_id: productoId, descripcion: `Venta ${i + 1}`, cantidad: POR_FACTURA, precio_unitario: 100 }],
+        });
+        expect(borrador.status).toBe(201);
+        return request(app).post(`/api/facturas/${borrador.body.id}/emitir`).send({});
+      })
+    );
+
+    const fallidas = emisiones.filter((r) => r.status !== 200);
+    expect(fallidas.map((r) => r.body), 'ninguna emisión debe fallar').toEqual([]);
+
+    // El consecutivo es sagrado: ni un número repetido ni un hueco
+    const numeros = emisiones.map((r) => Number(r.body.numero)).sort((a, b) => a - b);
+    expect(new Set(numeros).size, 'números duplicados').toBe(VENDEDORES);
+    expect(numeros).toEqual(Array.from({ length: VENDEDORES }, (_, i) => i + 1));
+
+    // El inventario descontó EXACTO (nadie piso a nadie en el kardex)
+    const despues = await pool.query(
+      `SELECT cantidad FROM existencias WHERE producto_id = $1 AND bodega = 'BOD-CEN'`, [productoId]
+    );
+    expect(Number(despues.rows[0].cantidad)).toBe(stockAntes - VENDEDORES * POR_FACTURA);
+
+    // Y cada factura dejó su asiento cuadrado
+    const cuadre = await pool.query(`
+      SELECT a.id, SUM(m.debito) AS debitos, SUM(m.credito) AS creditos
+      FROM facturas f
+      JOIN asientos a ON a.id = f.asiento_id
+      JOIN movimientos m ON m.asiento_id = a.id
+      WHERE f.serie = 'CONC' GROUP BY a.id`);
+    expect(cuadre.rowCount).toBe(VENDEDORES);
+    for (const r of cuadre.rows) {
+      expect(Number(r.debitos)).toBeCloseTo(Number(r.creditos), 2);
+    }
+  }, 180_000);
+});
+
 describe('seguridad perimetral (base real, no el esquema de pruebas)', () => {
   it('PostgREST responde 401 con la clave anon en tablas y vistas', async () => {
     const base = process.env.SUPABASE_URL;

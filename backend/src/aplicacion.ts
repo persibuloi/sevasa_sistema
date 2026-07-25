@@ -132,6 +132,14 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
   console.error('âŒ', err);
+  // Pool saturado: no es culpa del usuario, es capacidad. 503 con mensaje claro
+  // para que el vendedor sepa que puede reintentar sin haber roto nada.
+  if (/timeout exceeded when trying to connect/i.test(String(e?.message ?? ''))) {
+    res.status(503).json({
+      error: 'El sistema esta ocupado atendiendo otras facturas. Espera unos segundos y reintenta: no se grabo nada.',
+    });
+    return;
+  }
   res.status(500).json({ error: 'Error interno' });
 });
 

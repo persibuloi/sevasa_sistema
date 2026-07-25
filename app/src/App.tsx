@@ -269,7 +269,7 @@ const TITULOS: Record<string, string> = {
   '/saldos-iniciales': 'Saldos iniciales (apertura)',
 };
 
-function Encabezado() {
+function Encabezado({ alAbrirMenu }: { alAbrirMenu: () => void }) {
   const { pathname } = useLocation();
   const base = `/${pathname.split('/')[1] ?? ''}`;
   const hoy = new Date().toLocaleDateString('es-NI', {
@@ -279,20 +279,49 @@ function Encabezado() {
     year: 'numeric',
   });
   return (
-    <header className="px-8 pt-7 pb-5 flex items-end justify-between flex-wrap gap-2">
-      <h1 className="text-[26px] font-extrabold tracking-tight text-tinta">
-        {TITULOS[base] ?? 'SEVASA Contable'}
-      </h1>
-      <span className="text-xs text-slate-400 capitalize">{hoy}</span>
+    <header className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4 pt-4 sm:px-8 sm:pb-5 sm:pt-7">
+      <div className="flex min-w-0 items-center gap-3">
+        {/* En celular el menú vive detrás de este botón */}
+        <button
+          onClick={alAbrirMenu}
+          aria-label="Abrir menú"
+          className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-borde bg-white text-tinta lg:hidden"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        <h1 className="truncate text-[20px] font-extrabold tracking-tight text-tinta sm:text-[26px]">
+          {TITULOS[base] ?? 'SEVASA Contable'}
+        </h1>
+      </div>
+      <span className="hidden text-xs capitalize text-slate-400 sm:inline">{hoy}</span>
     </header>
   );
 }
 
 function Sistema({ sesion }: { sesion: Session }) {
   const { pathname } = useLocation();
+  const [menuAbierto, setMenuAbierto] = useState(false);
+
+  // Al navegar en celular, el menú se cierra solo
+  useEffect(() => setMenuAbierto(false), [pathname]);
+
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-60 shrink-0 bg-tinta text-white flex flex-col sticky top-0 h-screen">
+    <div className="min-h-screen lg:flex">
+      {/* Fondo que cierra el menú en celular */}
+      {menuAbierto && (
+        <div
+          onClick={() => setMenuAbierto(false)}
+          className="fixed inset-0 z-40 bg-tinta/50 backdrop-blur-[2px] lg:hidden"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-60 shrink-0 flex-col bg-tinta text-white
+                    transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0
+                    ${menuAbierto ? 'translate-x-0' : '-translate-x-full'}`}
+      >
         <div className="px-5 pt-6 pb-4">
           <div className="text-xl font-extrabold tracking-tight leading-none">
             SEVASA
@@ -363,9 +392,9 @@ function Sistema({ sesion }: { sesion: Session }) {
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0">
-        <Encabezado />
-        <main className="px-8 pb-12">
+      <div className="min-w-0 flex-1">
+        <Encabezado alAbrirMenu={() => setMenuAbierto(true)} />
+        <main className="px-4 pb-12 sm:px-8">
           <Routes>
             <Route path="/" element={<Navigate to="/facturas" replace />} />
             <Route path="/facturas" element={<Facturas />} />

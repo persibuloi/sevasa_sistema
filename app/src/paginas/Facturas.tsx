@@ -686,7 +686,73 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
             />
           )}
 
-          <table className="w-full text-[13px] mt-3">
+          {/* ---- Celular: cada línea es una tarjeta (una tabla de 6 columnas no cabe) ---- */}
+          <div className="mt-3 space-y-2 md:hidden">
+            {lineas.map((l, i) => {
+              const prod = productos.find((p) => String(p.id) === l.productoId);
+              const disp = Number(prod?.existencia_bodega ?? 0);
+              const pide = Number(l.cantidad || 0);
+              const falta = Boolean(prod && bodegaVenta && pide > disp);
+              const importe = Math.round(pide * Math.round(Number(l.precio || 0) * 100)) / 100;
+              return (
+                <div key={i} className={`rounded-xl border border-borde p-3 ${lineaVacia(l) ? 'opacity-60' : 'bg-white'}`}>
+                  <div className="mb-2 flex items-start gap-2">
+                    <button
+                      type="button"
+                      disabled={soloLectura}
+                      onClick={() => setModalLinea(i)}
+                      className="cifra shrink-0 rounded-md border border-borde bg-slate-50 px-2 py-1 text-[12px] font-medium"
+                    >
+                      {prod ? prod.codigo : '— libre —'}
+                    </button>
+                    <input
+                      value={l.descripcion}
+                      disabled={soloLectura}
+                      placeholder="Producto o servicio…"
+                      onChange={(e) =>
+                        setLineas(lineas.map((x, j) => (j === i ? { ...x, descripcion: e.target.value } : x)))
+                      }
+                      className="entrada h-9 flex-1 text-[13px]"
+                    />
+                    {!soloLectura && lineas.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setLineas(lineas.filter((_, j) => j !== i))}
+                        className="h-9 w-8 shrink-0 rounded-md text-slate-400 hover:bg-rojo-suave hover:text-rojo"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <span className="rotulo">Cant.{prod && bodegaVenta ? ` (hay ${disp})` : ''}</span>
+                      <input
+                        type="number" min="0" step="0.01" value={l.cantidad} disabled={soloLectura}
+                        onChange={(e) => setLineas(lineas.map((x, j) => (j === i ? { ...x, cantidad: e.target.value } : x)))}
+                        className={`entrada h-9 text-right cifra font-semibold ${falta ? 'border-rojo/50 bg-rojo-suave/40 text-rojo' : ''}`}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <span className="rotulo">Precio</span>
+                      <input
+                        type="number" min="0" step="0.01" value={l.precio} disabled={soloLectura} placeholder="0.00"
+                        onChange={(e) => setLineas(lineas.map((x, j) => (j === i ? { ...x, precio: e.target.value } : x)))}
+                        className="entrada h-9 text-right cifra"
+                      />
+                    </div>
+                    <div className="flex-1 text-right">
+                      <span className="rotulo">Importe</span>
+                      <div className="cifra h-9 pt-2 text-[15px] font-bold text-tinta">{montoSiempre(importe)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ---- Escritorio: tabla ---- */}
+          <table className="mt-3 hidden w-full text-[13px] md:table">
             <thead>
               <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 text-left">
                 <th className="pb-2 pl-1 w-32">Código</th>
@@ -843,9 +909,9 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
       )}
 
       {/* Barra de cierre: los totales viven abajo, siempre a la vista, como en caja */}
-      <div className="sticky bottom-0 z-20 -mx-8 mt-4 border-t border-borde bg-white/95 px-8 py-3 backdrop-blur-sm">
+      <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-borde bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-8 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
-          <div className="flex items-center gap-7">
+          <div className="flex items-center gap-5 sm:gap-7">
             <div>
               <div className="text-[11px] text-slate-400">Subtotal</div>
               <div className="cifra text-[15px] text-tinta">{montoSiempre(totales.subtotal)}</div>
@@ -863,7 +929,7 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           </div>
 
           {!soloLectura && (
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center gap-2 sm:w-auto">
               <span className="mr-2 hidden text-[11px] text-slate-400 xl:inline">
                 el consecutivo se asigna al emitir
               </span>
@@ -872,15 +938,19 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
                   Descartar
                 </button>
               )}
-              <button onClick={() => void guardarBorrador()} disabled={!valida || ocupado} className="boton-suave">
-                Guardar borrador
+              <button
+                onClick={() => void guardarBorrador()}
+                disabled={!valida || ocupado}
+                className="boton-suave flex-1 sm:flex-none"
+              >
+                Borrador
               </button>
               <button
                 onClick={() => void emitir()}
                 disabled={!puedeEmitir || ocupado || (serieManual && !(Number(numeroManual) > 0))}
-                className="boton-primario px-6"
+                className="boton-primario flex-1 px-6 sm:flex-none"
               >
-                {serieManual ? 'Grabar factura manual' : 'Emitir factura'}
+                {serieManual ? 'Grabar manual' : 'Emitir factura'}
               </button>
             </div>
           )}
@@ -1008,15 +1078,17 @@ function BuscadorRapido({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={teclas}
-            placeholder="Escaneá o escribí código / nombre y dale Enter…"
+            placeholder="Escaneá o escribí código / nombre…"
             className="entrada h-11 pl-9 pr-16 text-[15px]"
           />
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+          <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 sm:block">
             <span className="tecla">F2</span>
           </span>
         </div>
         <button type="button" onClick={alAbrirMultiple} className="boton-suave h-11 shrink-0">
-          + Varios productos <span className="text-slate-400 font-normal">({productos.length})</span>
+          <span className="hidden sm:inline">+ Varios productos </span>
+          <span className="sm:hidden">+ Varios</span>
+          <span className="font-normal text-slate-400">({productos.length})</span>
         </button>
       </div>
 
@@ -1128,8 +1200,8 @@ function ModalProductos({
   }, [alCerrar]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/50 p-4 pt-[7vh] backdrop-blur-[2px]" onClick={alCerrar}>
-      <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-borde bg-white shadow-[0_24px_64px_rgba(14,22,34,0.28)]"
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-tinta/50 p-0 backdrop-blur-[2px] sm:p-4 sm:pt-[7vh]" onClick={alCerrar}>
+      <div className="flex h-full w-full max-w-3xl flex-col overflow-hidden border-borde bg-white shadow-[0_24px_64px_rgba(14,22,34,0.28)] sm:h-auto sm:rounded-xl sm:border"
         onClick={(e) => e.stopPropagation()}>
         <div className="border-b border-borde p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -1151,7 +1223,7 @@ function ModalProductos({
           />
         </div>
 
-        <div className="max-h-[52vh] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto sm:max-h-[52vh] sm:flex-none">
           <table className="tabla">
             <thead className="sticky top-0 z-10">
               <tr>

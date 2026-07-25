@@ -34,7 +34,11 @@ export const pool = new Pool({
     return Number.isInteger(n) && n >= 1 && n <= 50 ? n : 10;
   })(),
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  // Una ráfaga (20 vendedores emitiendo al mismo tiempo) debe HACER COLA, no
+  // fallar: con 10 conexiones y transacciones de ~1s, 20 emisiones se despachan
+  // en un par de segundos. Con 10s de espera algunas se caían y el vendedor
+  // veía "Error interno" — probado en la suite de concurrencia.
+  connectionTimeoutMillis: 20_000,
 });
 
 /** Ejecuta fn dentro de una transacción; rollback automático si lanza.
