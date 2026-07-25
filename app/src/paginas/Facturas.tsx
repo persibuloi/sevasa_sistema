@@ -490,8 +490,8 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
 
       {aviso && <p className="text-sm mb-3">{aviso}</p>}
 
-      <div className="grid lg:grid-cols-[1fr_290px] gap-4 items-start">
-        {/* Formulario */}
+      <div>
+        {/* Formulario — a todo el ancho: la descripción del producto manda */}
         <div className="tarjeta p-6">
           <div className="grid md:grid-cols-2 gap-4 mb-5">
             <div>
@@ -758,59 +758,61 @@ function EditorFactura({ id, alVolver }: { id: number | null; alVolver: () => vo
           </div>
         </div>
 
-        {/* Resumen */}
-        <div className="tarjeta p-6 sticky top-6">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400 mb-4">Resumen</div>
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Subtotal</dt>
-              <dd className="cifra">{montoSiempre(totales.subtotal)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">IVA ({(tasaIva * 100).toFixed(0)}%)</dt>
-              <dd className="cifra">{montoSiempre(totales.iva)}</dd>
-            </div>
-            <div className="flex justify-between border-t border-borde pt-3 mt-3">
-              <dt className="font-bold text-tinta">Total C$</dt>
-              <dd className="cifra text-xl font-bold text-verde-oscuro">{montoSiempre(totales.total)}</dd>
-            </div>
-          </dl>
+      </div>
 
-          {!soloLectura && faltantes.length > 0 && (
-            <div className="mt-4 rounded-lg bg-rojo-suave border border-rojo/20 p-3 text-[12px]">
-              <p className="font-semibold text-rojo mb-1">Sin existencia suficiente en {bodegaVenta?.nombre}:</p>
-              {faltantes.map((f) => (
-                <p key={f.nombre} className="text-rojo/90">
-                  {f.nombre}: pedís <strong className="cifra">{f.pide}</strong>, hay <strong className="cifra">{f.hay}</strong>
-                </p>
-              ))}
-              <p className="text-slate-500 mt-1">Ajustá la cantidad o hacé un traslado a esta bodega.</p>
+      {!soloLectura && faltantes.length > 0 && (
+        <div className="mt-3 rounded-lg border border-rojo/25 bg-rojo-suave p-3 text-[13px]">
+          <p className="mb-1 font-semibold text-rojo">Sin existencia suficiente en {bodegaVenta?.nombre}:</p>
+          {faltantes.map((f) => (
+            <p key={f.nombre} className="text-rojo/90">
+              {f.nombre}: pedís <strong className="cifra">{f.pide}</strong>, hay <strong className="cifra">{f.hay}</strong>
+            </p>
+          ))}
+          <p className="mt-1 text-slate-500">Ajustá la cantidad o hacé un traslado a esta bodega.</p>
+        </div>
+      )}
+
+      {/* Barra de cierre: los totales viven abajo, siempre a la vista, como en caja */}
+      <div className="sticky bottom-0 z-20 -mx-8 mt-4 border-t border-borde bg-white/95 px-8 py-3 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+          <div className="flex items-center gap-7">
+            <div>
+              <div className="text-[11px] text-slate-400">Subtotal</div>
+              <div className="cifra text-[15px] text-tinta">{montoSiempre(totales.subtotal)}</div>
             </div>
-          )}
+            <div>
+              <div className="text-[11px] text-slate-400">IVA {(tasaIva * 100).toFixed(0)}%</div>
+              <div className="cifra text-[15px] text-tinta">{montoSiempre(totales.iva)}</div>
+            </div>
+            <div className="border-l border-borde pl-7">
+              <div className="text-[11px] text-slate-400">Total C$</div>
+              <div className="cifra text-2xl font-bold leading-tight text-verde-oscuro">
+                {montoSiempre(totales.total)}
+              </div>
+            </div>
+          </div>
 
           {!soloLectura && (
-            <div className="mt-6 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="mr-2 hidden text-[11px] text-slate-400 xl:inline">
+                el consecutivo se asigna al emitir
+              </span>
+              {factura && (
+                <button onClick={() => void descartar()} disabled={ocupado} className="boton-peligro">
+                  Descartar
+                </button>
+              )}
+              <button onClick={() => void guardarBorrador()} disabled={!valida || ocupado} className="boton-suave">
+                Guardar borrador
+              </button>
               <button
                 onClick={() => void emitir()}
                 disabled={!puedeEmitir || ocupado || (serieManual && !(Number(numeroManual) > 0))}
-                className="boton-primario w-full"
+                className="boton-primario px-6"
               >
                 {serieManual ? 'Grabar factura manual' : 'Emitir factura'}
               </button>
-              <button onClick={() => void guardarBorrador()} disabled={!valida || ocupado} className="boton-suave w-full">
-                Guardar borrador
-              </button>
-              {factura && (
-                <button onClick={() => void descartar()} disabled={ocupado} className="boton-peligro w-full">
-                  Descartar borrador
-                </button>
-              )}
             </div>
-          )}
-          {!soloLectura && (
-            <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
-              El número consecutivo se asigna únicamente al emitir. Un borrador descartado no quema números.
-            </p>
           )}
         </div>
       </div>
@@ -1027,10 +1029,11 @@ function ModalProductos({
     [productos, q]
   );
 
+  // OJO: el id viaja como TEXTO desde Postgres (bigserial) — comparar en string
   const elegidos = useMemo(
     () =>
       Object.entries(marcados)
-        .map(([id, cantidad]) => ({ producto: productos.find((p) => p.id === Number(id)), cantidad }))
+        .map(([id, cantidad]) => ({ producto: productos.find((p) => String(p.id) === id), cantidad }))
         .filter((x): x is { producto: Producto; cantidad: number } => Boolean(x.producto) && x.cantidad > 0),
     [marcados, productos]
   );
